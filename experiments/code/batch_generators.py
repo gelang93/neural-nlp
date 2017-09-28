@@ -10,8 +10,6 @@ def cdno_matrix_generator(X, cdnos, nb_sample, seed):
     cdnos : pandas series which maps each study to its cdno
     seed : the random seed to use
     nb_sample : number of samples to return
-    cdno_matching : yield same indexes for positive examples if `True` else yield
-    indexes just in the same study if `False`
 
     The first half of pairs are of the form ([study, corresponding-summary],  1)
     and second half are of the form ([study, summary-from-different-review], neg_nb).
@@ -28,6 +26,7 @@ def cdno_matrix_generator(X, cdnos, nb_sample, seed):
         cdno2study_idxs[cdno] = set(study_idxs)
 
     all_study_idxs = set(cdnos.index)
+    
     while True:
         study_idxs = random.choice(nb_studies, size=nb_sample, replace=False)
 

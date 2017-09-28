@@ -25,7 +25,7 @@ def my_config():
     exp_id = 0
     nb_epoch = 10
     aspect = 'population'
-    nb_train = .001
+    pico_file = '../data/files/study_inclusion.csv'
 
 
 @ex.automain

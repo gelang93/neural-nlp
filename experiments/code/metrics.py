@@ -46,7 +46,6 @@ def compute_f1(class_idx, multi_label, y_true, y_pred):
     precision = K.sum(tp) / K.sum(tpfp).astype('float32')
     recall = K.sum(tp) / K.sum(positives).astype('float32')
 
-    f1_numer = 2 * precision * recall
-    f1 = f1_numer / (precision + recall)
+    f1 = (2 * precision * recall) / (precision + recall)
     
     return f1
