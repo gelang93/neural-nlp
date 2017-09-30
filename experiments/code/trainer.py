@@ -2,25 +2,22 @@ import pickle
 import os
 from os.path import *
 
-from collections import OrderedDict
-
 import numpy as np
 import pandas as pd
 
-import scipy
-from sklearn.cross_validation import train_test_split
+from sklearn.model_selection import train_test_split
 
-
-import keras
-from keras.utils.np_utils import to_categorical
 from keras.callbacks import ModelCheckpoint, EarlyStopping
-from keras.optimizers import Adam, SGD, Adadelta
-from keras.models import model_from_json
 import keras.backend as K
 
 from batch_generators import bg1, bg2
 
 from callbacks import *
+
+import sys 
+sys.path.insert(0, '../../preprocess')
+
+import vectorizer
 
 
 class Trainer:
@@ -65,6 +62,7 @@ class Trainer:
         self.C['train_idxs'], self.C['val_idxs'] = train_idxs, val_idxs
         self.C['train_cdnos'], self.C['val_cdnos'] = train_cdnos, val_cdnos
         self.C['cdnos'] = df.cdno
+
 
     def load_data(self):
         """Load inputs
@@ -113,7 +111,8 @@ class Trainer:
         fold, metric = self.C['fold'], self.C['metric']
         
         weight_str = weight_str.format(exp_group, exp_id, fold, {})
-        os.makedirs(dirname(weight_str), exist_ok=True)
+        if not os.path.exists(dirname(weight_str)) :
+            os.makedirs(dirname(weight_str))
         
         cb = ModelCheckpoint(weight_str.format(metric),
                              monitor='val_loss',

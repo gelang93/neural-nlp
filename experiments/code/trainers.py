@@ -1,8 +1,7 @@
 from collections import OrderedDict
 
-import pickle
-
-from keras.layers import Input, Embedding, Dropout, Dense, LSTM, merge
+import keras.backend as K
+from keras.layers import Input, Embedding, Dropout, Dense, LSTM, merge, Lambda
 from keras.layers import Conv1D, GlobalMaxPooling1D, Flatten, merge
 from keras.layers import Activation, Lambda, ActivityRegularization
 from keras.layers.merge import Dot
@@ -14,7 +13,7 @@ from support import cnn_embed, average, norm2d
 
 
 class CNNSiameseTrainer(Trainer):
-    def build_model(self, nb_filter, filter_lens, dropout_prob, reg, loss,
+    def build_model(self, nb_filter, filter_lens, dropout_emb, reg, loss,
             use_pretrained, update_embeddings, project_summary):
 
         # abstract vec
@@ -53,6 +52,37 @@ class CNNSiameseTrainer(Trainer):
             score = Activation('sigmoid')(score)
 
         self.model = Model(input=[abstract, summary], output=score)
+        
+class BOWSiameseTrainer(Trainer):
+    def build_model(self, reg=0.01, dropout_emb=0.2):
+
+        # abstract vec
+        abstract_vectorizer = self.C['abstract']
+
+        abstract = Input(shape=[abstract_vectorizer.maxlen], dtype='int32')
+        embedded_abstract = Embedding(output_dim=abstract_vectorizer.word_dim,
+                                      input_dim=abstract_vectorizer.vocab_size,
+                                      input_length=abstract_vectorizer.maxlen,
+                                      trainable=True,
+                                      W_regularizer=l2(reg))(abstract)
+
+        abstract_vec = Lambda(lambda x : K.sum(x, axis=1), name='study')(embedded_abstract)
+
+        # summary vec
+        summary_vectorizer = self.C[self.C['aspect']]
+        summary = Input(shape=[summary_vectorizer.maxlen], dtype='int32')
+        embedded_summary = Embedding(output_dim=summary_vectorizer.word_dim,
+                                     input_dim=summary_vectorizer.vocab_size,
+                                     input_length=summary_vectorizer.maxlen,
+                                     W_regularizer=l2(reg),
+                                     trainable=True)(summary)
+
+        summary_vec = Lambda(lambda x : K.sum(x, axis=1), name='summary_activations')(embedded_summary)
+
+        score = merge(inputs=[abstract_vec, summary_vec], mode='dot', dot_axes=1, name='raw_score')
+
+        self.model = Model(input=[abstract, summary], output=score)
+        self.losses = ['raw_score']
 
 class SharedCNNSiameseTrainer(Trainer):
     """Two-input model which embeds abstract and target

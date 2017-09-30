@@ -179,6 +179,7 @@ class StudySimilarityLogger(Callback):
         same_study_mean = score[:self.nb_sample/2].mean()
         different_study_mean = score[self.nb_sample/2:].mean()
         logs['val_similarity'] = same_study_mean / different_study_mean
+        print logs['val_similarity']
 
 class TensorLogger(Callback):
     """Callback for monitoring value of tensors during training"""
