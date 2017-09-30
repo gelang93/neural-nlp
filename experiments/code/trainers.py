@@ -134,35 +134,41 @@ class AdversarialTrainer(Trainer):
     def build_model(self):
         maxlen = self.C['maxlen']
         aspect = self.C['aspect']
+        aspect_comp = list(self.C['inputs'])
+        aspect_comp.remove('abstract')
+        aspect_comp.remove(aspect)
 
-        A = ['same_abstract']
+        A = [('same_abstract', 'abstract')]
         S = ['same_'+aspect, 'corrupt_'+aspect, 'valid_'+aspect]
-        O = ['same_intervention', 'same_outcome']
+        S = [(s, aspect) for s in S]
+        O = [('same_' + s, s) for s in aspect_comp]
 
         I = OrderedDict() # inputs
         for s in A+S+O:
-            I[s] = Input(shape=[maxlen], dtype='int32', name=s)
+            maxlen = self.C[s[1]].maxlen
+            I[s[0]] = Input(shape=[maxlen], dtype='int32', name=s[0])
 
         W = OrderedDict() # words
-        lookup = Embedding(output_dim=self.C['word_dim'], input_dim=self.C['vocab_size'], name='embedding')
         for s in A+S+O:
-            W[s] = lookup(I[s])
+            word_dim, vocab_size = self.C[s[1]].word_dim, self.C[s[1]].vocab_size
+            lookup = Embedding(output_dim=word_dim, input_dim=vocab_size, name='embedding_' + s[0])
+            W[s[0]] = lookup(I[s[0]])
 
         C, P = OrderedDict(), OrderedDict() # conv and pool
         convolve, pool = Conv1D(filters=100, kernel_size=1), GlobalMaxPooling1D(name='pool')
         for s in A+S:
-            C[s] = convolve(W[s])
-            P[s] = pool(C[s])
+            C[s[0]] = convolve(W[s[0]])
+            P[s[0]] = pool(C[s[0]])
 
         D = OrderedDict() # dots
         for s in S:
-            D[s] = Dot(axes=1, name=s+'_score')([P['same_abstract'], P[s]])
+            D[s[0]] = Dot(axes=1, name=s[0]+'_score')([P['same_abstract'], P[s[0]]])
 
         N = OrderedDict() # norms
         for s in S+O:
-            N[s] = Lambda(norm2d, output_shape=[1], name=s+'_norm')(W[s])
+            N[s[0]] = Lambda(norm2d, output_shape=[1], name=s[0]+'_norm')(W[s[0]])
 
         for s in S:
-            N[s] = Lambda(lambda x: -x, name='neg_'+s+'_norm')(N[s])
+            N[s[0]] = Lambda(lambda x: -x, name='neg_'+s[0]+'_norm')(N[s[0]])
 
         self.model = Model(inputs=I.values(), outputs=D.values()+N.values())

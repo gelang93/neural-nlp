@@ -12,7 +12,7 @@ def my_config():
     optimizer = 'adam'
     metric = 'loss'
     callbacks = 'ss,cb,ce,fl,cv,lw,es'
-    trainer = 'BOWSiameseTrainer'
+    trainer = 'AdversarialTrainer'
     loss = 'hinge'
     nb_train = 1.
     log_full = 'False'
