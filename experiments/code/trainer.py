@@ -42,7 +42,8 @@ class Trainer:
 
         # load cdnos sorted by the ones with the most studies so we pick those first when undersampling
         df = pd.read_csv(self.C['pico_file'])
-        cdnos = np.array(df.groupby('cdno').size().sort_values(ascending=False).index)
+        cdnos = df.groupby('cdno').size()
+        cdnos = np.array(cdnos[cdnos > 1].sort_values(ascending=False).index)
 
         # split into train and validation at the cdno-level
         nb_reviews = len(cdnos)
@@ -81,6 +82,17 @@ class Trainer:
                 assert self.nb_values == len(self.C[input])
             self.nb_values = len(self.C[input])
 
+    def common_build_model(self) :
+        aspect = self.C['aspect']
+        aspect_comp = list(self.C['inputs'])
+        aspect_comp.remove('abstract')
+        aspect_comp.remove(aspect)
+
+        self.A = [('same_abstract', 'abstract')]
+        S = ['same_'+aspect, 'corrupt_'+aspect, 'valid_'+aspect]
+        self.S = [(s, aspect) for s in S]
+        self.O = [('same_' + s, s) for s in aspect_comp]
+
     def compile_model(self):
         """Compile keras model
 
@@ -88,18 +100,6 @@ class Trainer:
 
         """
         print 'Compiling...'
-        identity = lambda y_true, y_pred: K.mean(y_pred)
-        aspect = self.C['aspect']
-        losses = {'same_'+aspect+'_score': 'hinge',
-                  'valid_'+aspect+'_score': 'hinge',
-                  'corrupt_'+aspect+'_score': 'hinge',
-                  'neg_same_'+aspect+'_norm': identity,
-                  'neg_valid_'+aspect+'_norm': identity,
-                  'neg_corrupt_'+aspect+'_norm': identity,
-                  'same_intervention_norm': identity,
-                  'same_outcome_norm': identity,
-        }
-        self.model.compile(optimizer='adam', loss=losses)
         self.model.summary()
 
     def fit(self):
@@ -153,7 +153,7 @@ class Trainer:
                          # 'pl': pl, # precision logger
                          'ss': ss, # study similarity logger
                          'cv': cv, # should go *last* as other callbacks populate `logs` dict
-                         'lw': lw, # large word callback
+                         #'lw': lw, # large word callback
         }
         callback_list = self.C['callbacks'].split(',')
         self.callbacks = [callback_dict[cb_name] for cb_name in callback_list]
@@ -163,7 +163,7 @@ class Trainer:
 
         nb_train = len(train_idxs)
         self.model.fit_generator(gen_source_target_batches,
-                                 steps_per_epoch=(nb_train/batch_size),
+                                 steps_per_epoch=30,#(nb_train/batch_size),
                                  epochs=nb_epoch,
                                  verbose=1,
                                  callbacks=self.callbacks)

@@ -13,76 +13,37 @@ from support import cnn_embed, average, norm2d
 
 
 class CNNSiameseTrainer(Trainer):
-    def build_model(self, nb_filter, filter_lens, dropout_emb, reg, loss,
-            use_pretrained, update_embeddings, project_summary):
-
-        # abstract vec
-        abstract_vectorizer = self.C['abstract']
-
-        abstract = Input(shape=[abstract_vectorizer.maxlen], dtype='int32')
-        embedded_abstract = Embedding(output_dim=abstract_vectorizer.word_dim,
-                                      input_dim=abstract_vectorizer.vocab_size,
-                                      input_length=abstract_vectorizer.maxlen,
-                                      trainable=update_embeddings,
-                                      W_regularizer=l2(reg),
-                                      dropout=dropout_emb)(abstract)
-
-        abstract_vec = cnn_embed(embedded_abstract, filter_lens, nb_filter,
-                                 abstract_vectorizer.maxlen, reg, name='study')
-
-        # summary vec
-        summary_vectorizer = self.C[self.target]
-        summary = Input(shape=[summary_vectorizer.maxlen], dtype='int32')
-        embedded_summary = Embedding(output_dim=summary_vectorizer.word_dim,
-                                     input_dim=summary_vectorizer.vocab_size,
-                                     input_length=summary_vectorizer.maxlen,
-                                     W_regularizer=l2(reg),
-                                     trainable=update_embeddings,
-                                     dropout=dropout_emb)(summary)
-
-        summary_vec = cnn_embed(embedded_summary, filter_lens, nb_filter,
-                                summary_vectorizer.maxlen, reg,  name='summary_activations')
-
-        if project_summary:
-            summary_vec = Dense(output_dim=nb_filter*len(filter_lens), name='summary')(summary_vec)
-
-        score = merge(inputs=[abstract_vec, summary_vec], mode='dot', dot_axes=1, name='raw_score')
+    def build_model(self, nb_filter=300, filter_lens=range(5), dropout_emb=0.2, reg=0.001, update_embeddings=True, project_summary=False):
+        A, S, O = self.A, self.S, self.O
         
-        if loss == 'binary_crossentropy':
-            score = Activation('sigmoid')(score)
+        I = OrderedDict() # inputs
+        for s in A+S:
+            maxlen = self.C[s[1]].maxlen
+            I[s[0]] = Input(shape=[maxlen], dtype='int32', name=s[0])
 
-        self.model = Model(input=[abstract, summary], output=score)
-        
-class BOWSiameseTrainer(Trainer):
-    def build_model(self, reg=0.01, dropout_emb=0.2):
+        W = OrderedDict() # words
+        for s in A+S:
+            word_dim, vocab_size = self.C[s[1]].word_dim, self.C[s[1]].vocab_size
+            lookup = Embedding(output_dim=word_dim, input_dim=vocab_size, name='embedding_' + s[0])
+            W[s[0]] = lookup(I[s[0]])
 
-        # abstract vec
-        abstract_vectorizer = self.C['abstract']
+        C = OrderedDict()
+        for s in A+S:
+            maxlen = self.C[s[1]].maxlen
+            C[s[0]] = cnn_embed(W[s[0]], filter_lens, nb_filter, maxlen, reg, name='pool_' + s[0])
 
-        abstract = Input(shape=[abstract_vectorizer.maxlen], dtype='int32')
-        embedded_abstract = Embedding(output_dim=abstract_vectorizer.word_dim,
-                                      input_dim=abstract_vectorizer.vocab_size,
-                                      input_length=abstract_vectorizer.maxlen,
-                                      trainable=True,
-                                      W_regularizer=l2(reg))(abstract)
+        D = OrderedDict() # dots
+        for s in S:
+            D[s[0]] = Dot(axes=1, name=s[0]+'_score')([C['same_abstract'], C[s[0]]])
 
-        abstract_vec = Lambda(lambda x : K.sum(x, axis=1), name='study')(embedded_abstract)
+        self.model = Model(inputs=I.values(), outputs=D.values())
+        aspect = self.C['aspect']
+        losses = {'same_'+aspect+'_score': 'hinge',
+                  'valid_'+aspect+'_score': 'hinge',
+                  'corrupt_'+aspect+'_score': 'hinge'
+        }
+        self.model.compile(optimizer='adam', loss=losses)
 
-        # summary vec
-        summary_vectorizer = self.C[self.C['aspect']]
-        summary = Input(shape=[summary_vectorizer.maxlen], dtype='int32')
-        embedded_summary = Embedding(output_dim=summary_vectorizer.word_dim,
-                                     input_dim=summary_vectorizer.vocab_size,
-                                     input_length=summary_vectorizer.maxlen,
-                                     W_regularizer=l2(reg),
-                                     trainable=True)(summary)
-
-        summary_vec = Lambda(lambda x : K.sum(x, axis=1), name='summary_activations')(embedded_summary)
-
-        score = merge(inputs=[abstract_vec, summary_vec], mode='dot', dot_axes=1, name='raw_score')
-
-        self.model = Model(input=[abstract, summary], output=score)
-        self.losses = ['raw_score']
 
 class SharedCNNSiameseTrainer(Trainer):
     """Two-input model which embeds abstract and target
@@ -91,8 +52,7 @@ class SharedCNNSiameseTrainer(Trainer):
     models share weights as the inputs come from the same distribution.
 
     """
-    def build_model(self, nb_filter, filter_lens, nb_hidden, hidden_dim,
-            dropout_prob, dropout_emb, backprop_emb, word2vec_init, reg, loss):
+    def build_model(self, nb_filter=300, filter_lens=range(5), dropout_emb=0.2, reg=0.001):
 
         # Embed model
         info = self.vecs['abstracts']
@@ -110,11 +70,10 @@ class SharedCNNSiameseTrainer(Trainer):
         embedded_target = embed_abstract(target)
 
         # Compute similarity
-        score = merge(inputs=[embedded_source, embedded_target], mode='dot', dot_axes=1, name='score')
-        if loss == 'binary_crossentropy':
-            score = Activation('sigmoid')(score)
+        score = merge(inputs=[embedded_source, embedded_target], mode='dot', dot_axes=1, name='raw_score')
 
         self.model = Model(input=[source, target], output=score)
+        self.model.compile(optimizer='adam', loss={'raw_score' : 'hinge'})
 
 class AdversarialTrainer(Trainer):
     """Six-input model of abstract and aspect summaries
@@ -134,14 +93,7 @@ class AdversarialTrainer(Trainer):
     def build_model(self):
         maxlen = self.C['maxlen']
         aspect = self.C['aspect']
-        aspect_comp = list(self.C['inputs'])
-        aspect_comp.remove('abstract')
-        aspect_comp.remove(aspect)
-
-        A = [('same_abstract', 'abstract')]
-        S = ['same_'+aspect, 'corrupt_'+aspect, 'valid_'+aspect]
-        S = [(s, aspect) for s in S]
-        O = [('same_' + s, s) for s in aspect_comp]
+        A, S, O = self.A, self.S, self.O
 
         I = OrderedDict() # inputs
         for s in A+S+O:
@@ -171,4 +123,16 @@ class AdversarialTrainer(Trainer):
         for s in S:
             N[s[0]] = Lambda(lambda x: -x, name='neg_'+s[0]+'_norm')(N[s[0]])
 
-        self.model = Model(inputs=I.values(), outputs=D.values()+N.values())
+        self.model = Model(inputs=I.values(), outputs=D.values())#+N.values())
+        identity = lambda y_true, y_pred: K.mean(y_pred)
+        aspect = self.C['aspect']
+        losses = {'same_'+aspect+'_score': 'hinge',
+                  'valid_'+aspect+'_score': 'hinge',
+                  'corrupt_'+aspect+'_score': 'hinge',
+                  # 'neg_same_'+aspect+'_norm': identity,
+                  # 'neg_valid_'+aspect+'_norm': identity,
+                  # 'neg_corrupt_'+aspect+'_norm': identity,
+                  # 'same_intervention_norm': identity,
+                  # 'same_outcome_norm': identity,
+        }
+        self.model.compile(optimizer='adam', loss=losses)

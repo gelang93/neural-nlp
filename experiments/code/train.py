@@ -11,8 +11,8 @@ def my_config():
     fold = 0
     optimizer = 'adam'
     metric = 'loss'
-    callbacks = 'ss,cb,ce,fl,cv,lw,es'
-    trainer = 'AdversarialTrainer'
+    callbacks = 'ss,cb,ce,fl,cv,es'
+    trainer = 'CNNSiameseTrainer'
     loss = 'hinge'
     nb_train = 1.
     log_full = 'False'
@@ -23,7 +23,7 @@ def my_config():
     word_dim = 300
     exp_group = 'test'
     exp_id = 0
-    nb_epoch = 10
+    nb_epoch = 2
     aspect = 'population'
     pico_file = '../data/files/study_inclusion.csv'
 
@@ -55,6 +55,7 @@ def main(_config, _run):
 
     trainer = eval(_config['trainer'])(_config)
     trainer.load_data()
+    trainer.common_build_model()
     trainer.build_model()
     trainer.compile_model()
     result = trainer.fit()

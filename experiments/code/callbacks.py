@@ -17,6 +17,11 @@ import loggers
 
 import copy
 
+def makedirs(path) :
+    d = os.path.dirname(path)
+    if not os.path.exists(d) :
+        os.makedirs(d)
+
 
 class Flusher(Callback):
     """Callback that flushes stdout after every epoch"""
@@ -260,9 +265,12 @@ class TensorLogger(Callback):
             return
 
         # dump all tensor vals
-        data_fname = '../store/nan-snapshot/{}/{}/{}.p'
+        data_fname = '../store/nan-snapshot/{}/{}/{}.p'.format(self.exp_group, self.exp_id, {})
+        makedirs(data_fname)
+            
         for tensor_val, name in zip(tensor_vals, self.names):
-            pickle.dump(np.array(tensor_val), open(data_fname.format(self.exp_group, self.exp_id, name), 'wb'))
+            filename = data_fname.format(name)
+            pickle.dump(np.array(tensor_val), open(filename, 'wb'))
 
         # dump model
         self.model.save('../store/nan-snapshot/{}/{}/{}.h5'.format(self.exp_group, self.exp_id, 'model'))
@@ -280,10 +288,13 @@ class CSVLogger(Callback):
 
         self.exp_group, self.exp_id = exp_group, exp_id
         self.fold = fold
-        self.train_path = '../store/train/{}/{}/{}.csv'.format(self.exp_group, self.exp_id, self.fold)
+        self.train_path = '../store/train/{}/{}/{}.csv'.format(self.exp_group, self.exp_id, self.fold)    
+        makedirs(self.train_path)
 
         # write out hyperparams to disk
         hp_path = '../store/hyperparams/{}/{}.csv'.format(self.exp_group, self.exp_id)
+        makedirs(hp_path)
+        
         hp = pd.Series(hyperparam_dict)
         hp.index.name, hp.name = 'hyperparam', 'value'
         hp.to_csv(hp_path, header=True)
@@ -320,7 +331,8 @@ class ProbaLogger(Callback):
 
         self.best_score = 0
         self.proba_loc = '../store/probas/{}/{}.p'.format(self.exp_group, self.exp_id)
-
+        makedirs(self.proba_loc)
+        
         # initally we haven't predicted anything
         if not os.path.exists(self.proba_loc):
             pickle.dump(np.zeros([self.nb_train, self.nb_class]), open(self.proba_loc, 'wb'))
@@ -361,6 +373,8 @@ class StudyLogger(Callback):
         self.exp_group, self.exp_id = exp_group, exp_id
 
         self.dump_loc = '../store/study_vecs/{}/{}.p'.format(self.exp_group, self.exp_id)
+        makedirs(self.dump_loc)
+        
         self.max_score = -np.inf # study similarity score (computed in StudySimilarityLogger)
 
     def on_train_begin(self, logs={}):

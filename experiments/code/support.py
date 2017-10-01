@@ -137,21 +137,22 @@ def cnn_embed(words, filter_lens, nb_filter, max_doclen, reg, name):
     name : name to give the merged vector
     
     """
-    from keras.layers import Convolution1D, MaxPooling1D, Flatten, merge
+    from keras.layers import Convolution1D, MaxPooling1D, Flatten
+    from keras.layers.merge import concatenate
 
     activations = [0]*len(filter_lens)
     for i, filter_len in enumerate(filter_lens):
-        convolved = Convolution1D(nb_filter=nb_filter,
-                                  filter_length=filter_len,
+        convolved = Convolution1D(filters=nb_filter,
+                                  kernal_size=filter_len,
                                   activation='relu',
-                                  W_regularizer=l2(reg))(words)
+                                  kernel_regularizer=l2(reg))(words)
 
-        max_pooled = MaxPooling1D(pool_length=max_doclen-filter_len+1)(convolved) # max-1 pooling
+        max_pooled = MaxPooling1D(pool_size=max_doclen-filter_len+1)(convolved) # max-1 pooling
         flattened = Flatten()(max_pooled)
 
         activations[i] = flattened
 
-    return merge(activations, mode='concat', name=name) if len(filter_lens) > 1 else flattened
+    return concatenate(activations, name=name) if len(filter_lens) > 1 else flattened
 
 def top_reviews(cdnos, k):
     top_cdnos = set(cdnos.value_counts().sort_values(ascending=False)[:k])
