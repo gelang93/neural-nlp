@@ -9,6 +9,7 @@ import keras.backend as K
 from keras.utils.np_utils import to_categorical
 from keras.regularizers import l2
 from keras.layers import Flatten
+from keras.models import Model
 
 from metrics import compute_f1, compute_acc
 
@@ -124,7 +125,7 @@ def stratified_batch_generator(X_train, y_train, batch_size, mb_ratios, num_clas
 
         yield X_train[batch_idxs], to_categorical(y_train[batch_idxs])
 
-def cnn_embed(words, filter_lens, nb_filter, max_doclen, reg, name):
+def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, word_dim, reg, name):
     """Add conv -> max_pool -> flatten for each filter length
     
     Parameters
@@ -137,22 +138,24 @@ def cnn_embed(words, filter_lens, nb_filter, max_doclen, reg, name):
     name : name to give the merged vector
     
     """
-    from keras.layers import Convolution1D, MaxPooling1D, Flatten
+    from keras.layers import Conv1D, MaxPooling1D, Flatten, Input
     from keras.layers.merge import concatenate
 
     activations = [0]*len(filter_lens)
     for i, filter_len in enumerate(filter_lens):
-        convolved = Convolution1D(filters=nb_filter,
-                                  kernal_size=filter_len,
-                                  activation='relu',
-                                  kernel_regularizer=l2(reg))(words)
+        convolved = Conv1D(nb_filter, 
+                           filter_len, 
+                           activation='relu',
+                           kernel_regularizer=l2(reg))(embedding_layer)
 
         max_pooled = MaxPooling1D(pool_size=max_doclen-filter_len+1)(convolved) # max-1 pooling
         flattened = Flatten()(max_pooled)
 
         activations[i] = flattened
 
-    return concatenate(activations, name=name) if len(filter_lens) > 1 else flattened
+    concat = concatenate(activations, name=name) if len(filter_lens) > 1 else flattened
+    #model = Model(words, concat)
+    return concat
 
 def top_reviews(cdnos, k):
     top_cdnos = set(cdnos.value_counts().sort_values(ascending=False)[:k])

@@ -73,12 +73,25 @@ class Trainer:
         inputs : list of vectorizer names (expected to be in ../data/vectorizers)
         
         """
-        self.X = dict()
         self.nb_values = None 
         
         for input in self.C['inputs']:
             self.C[input] = pickle.load(open('../data/vectorizers/{}s.p'.format(input))) 
             if self.nb_values:
+                assert self.nb_values == len(self.C[input])
+            self.nb_values = len(self.C[input])
+            
+    def load_data_all_fields(self) :
+        self.vec = pickle.load(open('../data/vectorizers/allfields.p', 'rb'))
+        index = self.vec.index
+        self.nb_values = None
+        for input in self.C['inputs'] :
+            input_range = index[input]
+            self.C[input] = vectorizer.Vectorizer()
+            self.C[input].idx2word = self.vec.idx2word
+            self.C[input].word2idx = self.vec.word2idx
+            self.C[input].X = self.vec.X[input_range[0]:input_range[1]]
+            if self.nb_values: 
                 assert self.nb_values == len(self.C[input])
             self.nb_values = len(self.C[input])
 
@@ -163,7 +176,7 @@ class Trainer:
 
         nb_train = len(train_idxs)
         self.model.fit_generator(gen_source_target_batches,
-                                 steps_per_epoch=30,#(nb_train/batch_size),
+                                 steps_per_epoch=(nb_train/batch_size),
                                  epochs=nb_epoch,
-                                 verbose=1,
+                                 verbose=2,
                                  callbacks=self.callbacks)

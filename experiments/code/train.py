@@ -11,19 +11,16 @@ def my_config():
     fold = 0
     optimizer = 'adam'
     metric = 'loss'
-    callbacks = 'ss,cb,ce,fl,cv,es'
-    trainer = 'CNNSiameseTrainer'
+    callbacks = 'ss,cb,ce,fl,es,cv'
+    trainer = 'SharedCNNSiameseTrainer'
     loss = 'hinge'
     nb_train = 1.
     log_full = 'False'
     train_size = .97
     inputs = ['abstract', 'population', 'intervention', 'outcome']
-    maxlen = 416
-    vocab_size = 108017
-    word_dim = 300
     exp_group = 'test'
     exp_id = 0
-    nb_epoch = 2
+    nb_epoch = 50
     aspect = 'population'
     pico_file = '../data/files/study_inclusion.csv'
 
@@ -54,7 +51,7 @@ def main(_config, _run):
     _config['name'] = _run.meta_info['options']['--name']
 
     trainer = eval(_config['trainer'])(_config)
-    trainer.load_data()
+    trainer.load_data_all_fields()
     trainer.common_build_model()
     trainer.build_model()
     trainer.compile_model()

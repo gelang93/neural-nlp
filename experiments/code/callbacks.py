@@ -155,7 +155,7 @@ class StudySimilarityLogger(Callback):
         
         """
         # build keras function to get study embeddings
-        inputs = [self.model.inputs[0], K.learning_phase()]
+        inputs = self.model.get_layer('pool').inputs
         outputs = self.model.get_layer('pool').get_output_at(0)
         self.embed_studies = K.function(inputs, [outputs])
 
@@ -166,7 +166,7 @@ class StudySimilarityLogger(Callback):
         target_vecs = np.zeros([len(self.X_target), self.study_dim])
         i, bs = 0, self.batch_size
         while i*bs < self.nb_sample:
-            result = self.embed_studies([self.X_source[i*bs:(i+1)*bs], self.phase])[0]
+            result = self.embed_studies([self.X_source[i*bs:(i+1)*bs]])[0]
             source_vecs[i*bs:(i+1)*bs] = result
             target_vecs[i*bs:(i+1)*bs] = self.embed_studies([self.X_target[i*bs:(i+1)*bs], self.phase])[0]
             i += 1
@@ -184,7 +184,7 @@ class StudySimilarityLogger(Callback):
         same_study_mean = score[:self.nb_sample/2].mean()
         different_study_mean = score[self.nb_sample/2:].mean()
         logs['val_similarity'] = same_study_mean / different_study_mean
-        print logs['val_similarity']
+        print logs
 
 class TensorLogger(Callback):
     """Callback for monitoring value of tensors during training"""

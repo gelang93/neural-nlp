@@ -9,14 +9,15 @@ texts = []
 index = {}
 for f in fields :
     text = list(df[f])
+    orig_len =len(texts)
     texts += text
-    index[f] = len(texts)
+    index[f] = (orig_len, len(texts))
     
 print index
 from vectorizer import Vectorizer
 from nltk import word_tokenize
 
-texts = map(lambda s: ' '.join(word_tokenize(s)).lower(), texts) # basic tokenization
+texts = map(lambda s: ' '.join(word_tokenize(s)).lower(), texts)
 texts = map(lambda s: ' '.join('qqq' if any(char.isdigit() for char in word) else word for word in s.split()), texts)
 
 print "vectorizing"
@@ -26,5 +27,6 @@ vectorizer = Vectorizer()
 
 vectorizer.fit(texts)
 vectorizer.texts_to_sequences(texts)
+vectorizer.index = index
 
-cPickle.dump([vectorizer, index], open('allfields.p', 'wb'))
+cPickle.dump(vectorizer, open('allfields.p', 'wb'))
