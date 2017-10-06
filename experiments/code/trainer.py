@@ -82,7 +82,7 @@ class Trainer:
             self.nb_values = len(self.C[input])
             
     def load_data_all_fields(self) :
-        self.vec = pickle.load(open('../data/vectorizers/allfields.p', 'rb'))
+        self.vec = pickle.load(open('../data/vectorizers/allfields_with_embeddings.p', 'rb'))
         index = self.vec.index
         self.nb_values = None
         for input in self.C['inputs'] :
@@ -94,6 +94,15 @@ class Trainer:
             if self.nb_values: 
                 assert self.nb_values == len(self.C[input])
             self.nb_values = len(self.C[input])
+            
+    def load_cohen_data(self) :
+        df = pd.read_csv('../data/files/test_cohen_dedup.csv')
+        cdnos = df.groupby('cdno').size()
+        cdnos = np.array(cdnos[cdnos > 1].sort_values(ascending=False).index)
+        self.C['test_cdnos'] = df.cdno
+        self.C['test_idxs'] = np.array(df.index)
+        self.C['test_vec'] = pickle.load(open('../data/vectorizers/cohendata_dedup.p', 'rb'))
+        
 
     def common_build_model(self) :
         aspect = self.C['aspect']
@@ -105,6 +114,7 @@ class Trainer:
         S = ['same_'+aspect, 'corrupt_'+aspect, 'valid_'+aspect]
         self.S = [(s, aspect) for s in S]
         self.O = [('same_' + s, s) for s in aspect_comp]
+        self.field_in_train = zip(*self.A+self.S+self.O)[0]
 
     def compile_model(self):
         """Compile keras model
@@ -128,7 +138,7 @@ class Trainer:
             os.makedirs(dirname(weight_str))
         
         cb = ModelCheckpoint(weight_str.format(metric),
-                             monitor='val_loss',
+                             monitor='loss',
                              save_best_only=True,
                              mode='min')
         ce = ModelCheckpoint(weight_str.format('val_loss'),
@@ -143,11 +153,16 @@ class Trainer:
 
         train_cdnos = self.C['cdnos'].iloc[train_idxs].reset_index(drop=True)
         val_cdnos = self.C['cdnos'].iloc[val_idxs].reset_index(drop=True)
-
+        
         batch = bg2(X_val, val_cdnos)
+        
+        X_test = {'abstract': self.C['test_vec'].X[self.C['test_idxs']]}
+        test_cdnos = self.C['test_cdnos'].reset_index(drop=True)
+        batch_test = bg2(X_test, test_cdnos, 500)
         
         study_dim = self.model.get_layer('pool').output_shape[-1]
         ss = StudySimilarityLogger(next(batch), study_dim)
+        sst = StudySimilarityLogger(next(batch_test), study_dim, logname='test_similarity')
         # pl = PrecisionLogger(X_val, study_dim=self.model.get_layer('study').output_shape[-1])
 
         es = EarlyStopping(monitor='val_similarity', patience=10, verbose=2, mode='max')
@@ -165,13 +180,14 @@ class Trainer:
                          # 'sl': sl, # study logger
                          # 'pl': pl, # precision logger
                          'ss': ss, # study similarity logger
+                         'st': sst,
                          'cv': cv, # should go *last* as other callbacks populate `logs` dict
                          #'lw': lw, # large word callback
         }
         callback_list = self.C['callbacks'].split(',')
         self.callbacks = [callback_dict[cb_name] for cb_name in callback_list]
         
-        gen_source_target_batches = bg1(X_train, train_cdnos)
+        gen_source_target_batches = bg1(X_train, train_cdnos, self)
         batch_size, nb_epoch = self.C['batch_size'], self.C['nb_epoch']
 
         nb_train = len(train_idxs)

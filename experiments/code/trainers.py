@@ -52,13 +52,17 @@ class SharedCNNSiameseTrainer(Trainer):
     models share weights as the inputs come from the same distribution.
 
     """
-    def build_model(self, nb_filter=300, filter_lens=range(1,3), dropout_emb=0.2, reg=0.001):
+    def build_model(self, nb_filter=300, filter_lens=range(1,3), dropout_emb=0.2, reg=0.0001):
         A, S, O = self.A, self.S, self.O
         maxlen = self.vec.maxlen
         word_dim, vocab_size = self.vec.word_dim, self.vec.vocab_size
 
         input = Input(shape=[maxlen], dtype='int32')
-        lookup = Embedding(output_dim=word_dim, input_dim=vocab_size, name='embedding')(input)
+        lookup = Embedding(output_dim=word_dim, 
+                           input_dim=vocab_size, 
+                           name='embedding', 
+                           weights=[self.vec.embeddings])(input)
+        #lookup = Dropout(0.4, noise_shape=(1, word_dim))(lookup)
         cnn_network = cnn_embed(lookup, filter_lens, nb_filter, maxlen, word_dim, reg, name='pool')
         model = Model(input, cnn_network)
         model.name = 'pool'

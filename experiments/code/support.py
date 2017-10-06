@@ -140,6 +140,7 @@ def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, word_dim, reg
     """
     from keras.layers import Conv1D, MaxPooling1D, Flatten, Input
     from keras.layers.merge import concatenate
+    from keras.layers.core import Dropout
 
     activations = [0]*len(filter_lens)
     for i, filter_len in enumerate(filter_lens):
@@ -154,7 +155,7 @@ def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, word_dim, reg
         activations[i] = flattened
 
     concat = concatenate(activations, name=name) if len(filter_lens) > 1 else flattened
-    #model = Model(words, concat)
+    concat = Dropout(0.5)(concat)
     return concat
 
 def top_reviews(cdnos, k):

@@ -47,14 +47,14 @@ def cdno_matrix_generator(X, cdnos, nb_sample, seed):
             different_study_idx = random.choice(corrupt_study_idxs)
             different_study_idxs.append(different_study_idx)
 
-        X_study = {'same_'+field: X[field][study_idxs] for field in fields}
-        X_same_study = {'valid_'+field: X[field][same_study_idxs] for field in fields}
-        X_different_study = {'corrupt_'+field: X[field][different_study_idxs] for field in fields}
+        X_study = {'same_'+field: X[field][study_idxs] for field in fields if field in X}
+        X_same_study = {'valid_'+field: X[field][same_study_idxs] for field in fields if field in X}
+        X_different_study = {'corrupt_'+field: X[field][different_study_idxs] for field in fields if field in X}
 
         X_batch = dict(X_study.items() + X_same_study.items() + X_different_study.items())
         yield X_batch
 
-def bg1(X, cdnos, nb_sample=128, seed=1337):
+def bg1(X, cdnos, trainer, nb_sample=128, seed=1337):
     """Batch generator 1
 
     Samples a batch dict containing
@@ -65,22 +65,11 @@ def bg1(X, cdnos, nb_sample=128, seed=1337):
       }
 
     """
-    fields = ['same_abstract',
-              'same_population',
-              'same_intervention',
-              'same_outcome',
-              'valid_population',
-              'corrupt_population',
-    ]
-
-    y_batch = {'same_population_score': np.ones(nb_sample),
-               'valid_population_score': np.ones(nb_sample),
-               'corrupt_population_score': np.full(shape=nb_sample, fill_value=-1),
-               'neg_same_population_norm': np.random.randn(nb_sample),
-               'neg_valid_population_norm': np.random.randn(nb_sample),
-               'neg_corrupt_population_norm': np.random.randn(nb_sample),
-               'same_intervention_norm': np.random.randn(nb_sample),
-               'same_outcome_norm': np.random.randn(nb_sample),
+    fields = trainer.field_in_train
+    aspect = trainer.C['aspect']
+    y_batch = {'same_' + aspect + '_score': np.ones(nb_sample),
+               'valid_' + aspect + '_score': np.ones(nb_sample),
+               'corrupt_' + aspect + '_score': np.full(shape=nb_sample, fill_value=-1)
     }
 
     batch = cdno_matrix_generator(X, cdnos, nb_sample, seed)

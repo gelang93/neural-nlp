@@ -124,7 +124,7 @@ class StudySimilarityLogger(Callback):
     reviews.
     
     """
-    def __init__(self, X, study_dim, batch_size=128, phase=0):
+    def __init__(self, X, study_dim, batch_size=128, phase=0, logname='val_similarity'):
         """Save variables and sample study indices
 
         Parameters
@@ -141,10 +141,12 @@ class StudySimilarityLogger(Callback):
 
         self.X_source = np.concatenate([X['same_abstract'], X['same_abstract']])
         self.X_target = np.concatenate([X['valid_abstract'], X['corrupt_abstract']])
+        print self.X_source.shape
         self.phase = phase
         self.nb_sample = len(self.X_source)
         self.study_dim = study_dim
         self.batch_size = batch_size
+        self.logname = logname
         assert len(self.X_target) == self.nb_sample
 
     def on_train_begin(self, logs={}):
@@ -156,6 +158,7 @@ class StudySimilarityLogger(Callback):
         """
         # build keras function to get study embeddings
         inputs = self.model.get_layer('pool').inputs
+        inputs += [K.learning_phase()]
         outputs = self.model.get_layer('pool').get_output_at(0)
         self.embed_studies = K.function(inputs, [outputs])
 
@@ -166,7 +169,7 @@ class StudySimilarityLogger(Callback):
         target_vecs = np.zeros([len(self.X_target), self.study_dim])
         i, bs = 0, self.batch_size
         while i*bs < self.nb_sample:
-            result = self.embed_studies([self.X_source[i*bs:(i+1)*bs]])[0]
+            result = self.embed_studies([self.X_source[i*bs:(i+1)*bs], self.phase])[0]
             source_vecs[i*bs:(i+1)*bs] = result
             target_vecs[i*bs:(i+1)*bs] = self.embed_studies([self.X_target[i*bs:(i+1)*bs], self.phase])[0]
             i += 1
@@ -183,7 +186,7 @@ class StudySimilarityLogger(Callback):
         score = np.sum(source_vecs*target_vecs, axis=1)
         same_study_mean = score[:self.nb_sample/2].mean()
         different_study_mean = score[self.nb_sample/2:].mean()
-        logs['val_similarity'] = same_study_mean / different_study_mean
+        logs[self.logname] = same_study_mean / different_study_mean
         print logs
 
 class TensorLogger(Callback):
@@ -309,7 +312,6 @@ class CSVLogger(Callback):
         
         """
         frame = {metric: [val] for metric, val in logs.items()}
-        print(self.train_path)
         pd.DataFrame(frame).to_csv(self.train_path,
                                    index=False,
                                    mode='a' if epoch > 0 else 'w', # overwrite if starting anew if starting anwe

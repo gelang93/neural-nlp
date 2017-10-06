@@ -49,7 +49,7 @@ class Vectorizer:
             texts = [' '.join(unkify(word) for word in text.split()) for text in texts]
 
         # fit vocabulary
-        self.tok = Tokenizer(filters='')
+        self.tok = Tokenizer(filters='', num_words=50000)
         self.tok.fit_on_texts(texts)
 
         # set up dicts
@@ -119,11 +119,14 @@ class Vectorizer:
         """
         self.word_dim, self.vocab_size = model.vector_size, len(self.word2idx)
         self.embeddings = np.zeros([self.vocab_size, self.word_dim])
-
+        in_pre = 0
         for i, word in sorted(self.idx2word.items()):
-            self.embeddings[i] = model[word] if word in model else np.random.randn(self.word_dim)
-
-        return self.embeddings
+            if word in model :
+                self.embeddings[i] = model[word] 
+                in_pre += 1
+            else :
+                self.embeddings[i] = np.random.randn(self.word_dim)
+        return self.embeddings, in_pre
 
     def test(self, doc_idx):
         """Recover text from vectorized representation of the `doc_idx`th text
