@@ -13,7 +13,7 @@ def my_config():
     fold = 0
     optimizer = 'adam'
     metric = 'loss'
-    callbacks = 'ss,st,cb,fl,es,cv'
+    callbacks = 'ss,st,al,cb,fl,es,cv'
     trainer = 'SharedCNNSiameseTrainer'
     loss = 'hinge'
     nb_train = 1.
@@ -22,7 +22,7 @@ def my_config():
     inputs = ['abstract', 'population', 'intervention', 'outcome']
     exp_group = 'population_' + time_str
     exp_id = 0
-    nb_epoch = 20
+    nb_epoch = 10
     aspect = 'population'
     pico_file = '../data/files/study_inclusion.csv'
 

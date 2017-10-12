@@ -82,7 +82,7 @@ class Trainer:
             self.nb_values = len(self.C[input])
             
     def load_data_all_fields(self) :
-        self.vec = pickle.load(open('../data/vectorizers/allfields_with_embeddings.p', 'rb'))
+        self.vec = pickle.load(open('../data/vectorizers/allfields_with_embedding_5000.p', 'rb'))
         index = self.vec.index
         self.nb_values = None
         for input in self.C['inputs'] :
@@ -97,11 +97,18 @@ class Trainer:
             
     def load_cohen_data(self) :
         df = pd.read_csv('../data/files/test_cohen_dedup.csv')
-        cdnos = df.groupby('cdno').size()
-        cdnos = np.array(cdnos[cdnos > 1].sort_values(ascending=False).index)
+        nb_studies = len(df)
+        H = np.zeros((nb_studies, nb_studies))
+
+        cdnos = list(set(df.cdno))
+        for i in range(nb_studies) :
+            H[i, df[df['cdno'] == df['cdno'][i]].index] = 1
+        H[np.arange(nb_studies), np.arange(nb_studies)] = 0
+        
+        self.C['test_ref'] = H
         self.C['test_cdnos'] = df.cdno
         self.C['test_idxs'] = np.array(df.index)
-        self.C['test_vec'] = pickle.load(open('../data/vectorizers/cohendata_dedup.p', 'rb'))
+        self.C['test_vec'] = pickle.load(open('../data/vectorizers/cohendata_dedup_5000.p', 'rb'))
         
 
     def common_build_model(self) :
@@ -109,12 +116,15 @@ class Trainer:
         aspect_comp = list(self.C['inputs'])
         aspect_comp.remove('abstract')
         aspect_comp.remove(aspect)
-
-        self.A = [('same_abstract', 'abstract')]
-        S = ['same_'+aspect, 'corrupt_'+aspect, 'valid_'+aspect]
-        self.S = [(s, aspect) for s in S]
-        self.O = [('same_' + s, s) for s in aspect_comp]
-        self.field_in_train = zip(*self.A+self.S+self.O)[0]
+        self.C['aspect_comp'] = aspect_comp
+        
+        self.modifier = ['same', 'corrupt', 'valid']
+        self.fields = []
+        for input in self.C['inputs'] :
+            for mod in self.modifier :
+                self.fields += [(mod + '_' + input, input)]        
+        
+        self.fields_in_train = zip(*self.fields)[0]
 
     def compile_model(self):
         """Compile keras model
@@ -163,26 +173,22 @@ class Trainer:
         study_dim = self.model.get_layer('pool').output_shape[-1]
         ss = StudySimilarityLogger(next(batch), study_dim)
         sst = StudySimilarityLogger(next(batch_test), study_dim, logname='test_similarity')
-        # pl = PrecisionLogger(X_val, study_dim=self.model.get_layer('study').output_shape[-1])
 
         es = EarlyStopping(monitor='val_similarity', patience=10, verbose=2, mode='max')
         fl = Flusher()
         cv = CSVLogger(exp_group, exp_id, fold)
-        # sl = StudyLogger(X_study[val_idxs], self.exp_group, self.exp_id)
-        idx2word = self.C['abstract'].idx2word
-        lw = LargeWordCallback(idx2word)
+        
+        al = AUCLogger(self.C['test_vec'].X, self.C['test_ref'])
 
         # filter down callbacks
         callback_dict = {'cb': cb, # checkpoint best
                          'ce': ce, # checkpoint every
                          'fl': fl, # flusher
                          'es': es, # early stopping
-                         # 'sl': sl, # study logger
-                         # 'pl': pl, # precision logger
                          'ss': ss, # study similarity logger
                          'st': sst,
                          'cv': cv, # should go *last* as other callbacks populate `logs` dict
-                         #'lw': lw, # large word callback
+                         'al': al
         }
         callback_list = self.C['callbacks'].split(',')
         self.callbacks = [callback_dict[cb_name] for cb_name in callback_list]

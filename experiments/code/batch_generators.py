@@ -65,12 +65,8 @@ def bg1(X, cdnos, trainer, nb_sample=128, seed=1337):
       }
 
     """
-    fields = trainer.field_in_train
-    aspect = trainer.C['aspect']
-    y_batch = {'same_' + aspect + '_score': np.ones(nb_sample),
-               'valid_' + aspect + '_score': np.ones(nb_sample),
-               'corrupt_' + aspect + '_score': np.full(shape=nb_sample, fill_value=-1)
-    }
+    fields = trainer.fields_in_train
+    y_batch = trainer.generate_y_batch(nb_sample)
 
     batch = cdno_matrix_generator(X, cdnos, nb_sample, seed)
     while True:

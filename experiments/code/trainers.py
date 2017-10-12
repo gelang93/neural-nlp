@@ -9,51 +9,28 @@ from keras.models import Model
 from keras.regularizers import l2
 
 from trainer import Trainer
-from support import cnn_embed, average, norm2d
+from support import cnn_embed, lstm_embed
 
-
-class CNNSiameseTrainer(Trainer):
-    def build_model(self, nb_filter=300, filter_lens=range(5), dropout_emb=0.2, reg=0.001, update_embeddings=True, project_summary=False):
-        A, S, O = self.A, self.S, self.O
-        
-        I = OrderedDict() # inputs
-        for s in A+S:
-            maxlen = self.C[s[1]].maxlen
-            I[s[0]] = Input(shape=[maxlen], dtype='int32', name=s[0])
-
-        W = OrderedDict() # words
-        for s in A+S:
-            word_dim, vocab_size = self.C[s[1]].word_dim, self.C[s[1]].vocab_size
-            lookup = Embedding(output_dim=word_dim, input_dim=vocab_size, name='embedding_' + s[0])
-            W[s[0]] = lookup(I[s[0]])
-
-        C = OrderedDict()
-        for s in A+S:
-            maxlen, word_dim = self.C[s[1]].maxlen, self.C[s[1]].word_dim
-            C[s[0]] = cnn_embed(filter_lens, nb_filter, maxlen, word_dim, reg, name='pool_' + s[0])(W[s[0]])
-
-        D = OrderedDict() # dots
-        for s in S:
-            D[s[0]] = Dot(axes=1, name=s[0]+'_score')([C['same_abstract'], C[s[0]]])
-
-        self.model = Model(inputs=I.values(), outputs=D.values())
-        aspect = self.C['aspect']
-        losses = {'same_'+aspect+'_score': 'hinge',
-                  'valid_'+aspect+'_score': 'hinge',
-                  'corrupt_'+aspect+'_score': 'hinge'
-        }
-        self.model.compile(optimizer='adam', loss=losses)
-
+import numpy as np
 
 class SharedCNNSiameseTrainer(Trainer):
-    """Two-input model which embeds abstract and target
-    
-    Either push them apart or pull them together depending on label. The two
-    models share weights as the inputs come from the same distribution.
-
-    """
-    def build_model(self, nb_filter=300, filter_lens=range(1,3), dropout_emb=0.2, reg=0.0001):
-        A, S, O = self.A, self.S, self.O
+    def build_model(self, nb_filter=300, filter_lens=range(1,4), reg=0.0001):
+        aspect = self.C['aspect']
+        inputs = ['same_abstract']
+        scores = []
+        for mod in ['valid', 'corrupt'] :
+            inputs += [mod + '_abstract']
+            scores += [mod + '_abstract']
+            
+        for mod in ['same'] :
+            inputs += [mod + '_' + aspect]
+            scores += [mod + '_' + aspect]
+        
+        for mod in ['same'] :
+            for aspect in self.C['aspect_comp'] :
+                inputs += [mod + '_' + aspect]
+                scores += [mod + '_' + aspect]
+        
         maxlen = self.vec.maxlen
         word_dim, vocab_size = self.vec.word_dim, self.vec.vocab_size
 
@@ -62,90 +39,51 @@ class SharedCNNSiameseTrainer(Trainer):
                            input_dim=vocab_size, 
                            name='embedding', 
                            weights=[self.vec.embeddings])(input)
-        #lookup = Dropout(0.4, noise_shape=(1, word_dim))(lookup)
         cnn_network = cnn_embed(lookup, filter_lens, nb_filter, maxlen, word_dim, reg, name='pool')
+        lstm_network = lstm_embed(lookup, 128, reg)
         model = Model(input, cnn_network)
         model.name = 'pool'
         
         I = OrderedDict() # inputs
-        for s in A+S:
-            I[s[0]] = Input(shape=[maxlen], dtype='int32', name=s[0])
+        for s in inputs:
+            I[s] = Input(shape=[maxlen], dtype='int32', name=s)
         
         C = OrderedDict()
-        for s in A+S:
-            C[s[0]] = model(I[s[0]])
+        for s in inputs:
+            C[s] = model(I[s])
 
         D = OrderedDict() # dots
-        for s in S:
-            D[s[0]] = Dot(axes=1, name=s[0]+'_score')([C['same_abstract'], C[s[0]]])
+        for s in scores:
+            D[s] = Dot(axes=1, name=s+'_score')([C['same_abstract'], C[s]])
 
         self.model = Model(inputs=I.values(), outputs=D.values())
-        aspect = self.C['aspect']
-        losses = {'same_'+aspect+'_score': 'hinge',
-                  'valid_'+aspect+'_score': 'hinge',
-                  'corrupt_'+aspect+'_score': 'hinge'
-        }
+        losses = {}
+        for s in scores :
+            losses[s + '_score'] = 'hinge'
+            
+        loss_weights = {}
+#         for mod in ['same', 'valid'] :
+#             loss_weights[mod + '_' + aspect + '_score'] = 10.0
         
-        self.model.compile(optimizer='adam', loss=losses)
-
-class AdversarialTrainer(Trainer):
-    """Six-input model of abstract and aspect summaries
-
-    The model takes in an abstract and an aspect. We are given a "valid" aspect
-    summary (from the same review) and a "corrupt" aspect summary (from a
-    different review). We are also given the a "same" aspect summary (for the
-    given abstract) along with "same" summaries for the other abstracts (for the
-    given abstract).
-
-    We run a conv over the abstract and summaries for the given aspect. We also
-    compute the norm of the embeddings for each summary so we can either enforce
-    them to be big (for the words in the summaries for the aspect) or small (for
-    words in other aspect summaries).
-    
-    """
-    def build_model(self):
-        maxlen = self.C['maxlen']
+        self.model.compile(optimizer='adam', loss=losses, loss_weights=loss_weights)
+        
+    def generate_y_batch(self, nb_sample) :
         aspect = self.C['aspect']
-        A, S, O = self.A, self.S, self.O
+        y_batch = {}
+        
+        y_batch['same_' + aspect + '_score'] = np.ones(nb_sample)
+        y_batch['valid_' + aspect + '_score'] = np.ones(nb_sample)
+        y_batch['corrupt_' + aspect + '_score'] = np.full(shape=nb_sample, fill_value=-1)
+        #y_batch['corrupt_' + aspect + '_score'] = np.ones(nb_sample)
+        
+        y_batch['corrupt_abstract_score'] = np.full(shape=nb_sample, fill_value=-1)
+        y_batch['valid_abstract_score'] = np.ones(nb_sample)
+        
+        y_batch['valid_' + aspect + '_aspect_score'] = np.ones(nb_sample)
+        y_batch['corrupt_' + aspect + '_aspect_score'] = np.full(shape=nb_sample, fill_value=-1)
 
-        I = OrderedDict() # inputs
-        for s in A+S+O:
-            maxlen = self.C[s[1]].maxlen
-            I[s[0]] = Input(shape=[maxlen], dtype='int32', name=s[0])
-
-        W = OrderedDict() # words
-        for s in A+S+O:
-            word_dim, vocab_size = self.C[s[1]].word_dim, self.C[s[1]].vocab_size
-            lookup = Embedding(output_dim=word_dim, input_dim=vocab_size, name='embedding_' + s[0])
-            W[s[0]] = lookup(I[s[0]])
-
-        C, P = OrderedDict(), OrderedDict() # conv and pool
-        convolve, pool = Conv1D(filters=100, kernel_size=1), GlobalMaxPooling1D(name='pool')
-        for s in A+S:
-            C[s[0]] = convolve(W[s[0]])
-            P[s[0]] = pool(C[s[0]])
-
-        D = OrderedDict() # dots
-        for s in S:
-            D[s[0]] = Dot(axes=1, name=s[0]+'_score')([P['same_abstract'], P[s[0]]])
-
-        N = OrderedDict() # norms
-        for s in S+O:
-            N[s[0]] = Lambda(norm2d, output_shape=[1], name=s[0]+'_norm')(W[s[0]])
-
-        for s in S:
-            N[s[0]] = Lambda(lambda x: -x, name='neg_'+s[0]+'_norm')(N[s[0]])
-
-        self.model = Model(inputs=I.values(), outputs=D.values())#+N.values())
-        identity = lambda y_true, y_pred: K.mean(y_pred)
-        aspect = self.C['aspect']
-        losses = {'same_'+aspect+'_score': 'hinge',
-                  'valid_'+aspect+'_score': 'hinge',
-                  'corrupt_'+aspect+'_score': 'hinge',
-                  # 'neg_same_'+aspect+'_norm': identity,
-                  # 'neg_valid_'+aspect+'_norm': identity,
-                  # 'neg_corrupt_'+aspect+'_norm': identity,
-                  # 'same_intervention_norm': identity,
-                  # 'same_outcome_norm': identity,
-        }
-        self.model.compile(optimizer='adam', loss=losses)
+        for a in self.C['aspect_comp'] :
+            for mod in self.modifier :
+                y_batch[mod + '_' + a + '_score'] = np.full(shape=nb_sample, fill_value=-1)
+            
+        return y_batch

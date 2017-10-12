@@ -4,9 +4,13 @@ import numpy as np
 import pandas as pd
 
 from keras.preprocessing import sequence
-from keras.preprocessing.text import Tokenizer
+
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction import stop_words
+from nltk.tokenize import word_tokenize
 
 from scipy.sparse import csr_matrix
+from math import ceil
 
 
 class Vectorizer:
@@ -19,9 +23,10 @@ class Vectorizer:
     models.
 
     """
-    def __init__(self):
+    def __init__(self, num_words=None):
         self.embeddings = None
         self.word_dim = 300
+        self.num_words = num_words
 
     def __len__(self):
         """Return the length of X"""
@@ -32,9 +37,19 @@ class Vectorizer:
         """Return a slice of X"""
 
         return self.X[given]
+    
+    def tokenizer(self, text) :
+        text = word_tokenize(text.lower())
+        text = ['qqq' if any(char.isdigit() for char in word) else word for word in text]
+        return text
+    
+    def convert_to_sequence(self, texts) :
+        texts_tokenized = map(lambda s : self.tokenizer(s), texts)
+        texts_tokenized = map(lambda s : ['unk' if word not in self.word2idx else word for word in s], texts_tokenized)
+        sequences = map(lambda s : [self.word2idx[word] for word in s], texts_tokenized)
+        return sequences, texts_tokenized
 
-
-    def fit(self, texts, word_list=None):
+    def fit(self, texts):
         """Fit the texts with a keras tokenizer
         
         Parameters
@@ -43,21 +58,22 @@ class Vectorizer:
         word_list : list of words to include in the text
         
         """
-        if word_list:
-            def unkify(word):
-                return word if word in word_list else 'unk'
-            texts = [' '.join(unkify(word) for word in text.split()) for text in texts]
-
-        # fit vocabulary
-        self.tok = Tokenizer(filters='', num_words=50000)
-        self.tok.fit_on_texts(texts)
-
-        # set up dicts
-        self.word2idx = self.tok.word_index
+        cvec = CountVectorizer(tokenizer=self.tokenizer, max_features=self.num_words)
+        cvec.fit(texts)
+        
+        self.word2idx = self.cvec.vocabulary_
+        for word in self.word2idx :
+            self.word2idx[word] += 2
+            
+        self.word2idx['[0]'] = 0
+        self.word2idx['unk'] = 1
+        
         self.idx2word = {idx: word for word, idx in self.word2idx.items()}
+   
+        self.fit_texts = texts
 
         self.vocab_size = len(self.word2idx)
-        self.fit_texts = texts
+
 
     def texts_to_sequences(self, texts, do_pad=True, maxlen=None, maxlen_ratio=0.95):
         """Vectorize texts as sequences of indices
@@ -74,36 +90,16 @@ class Vectorizer:
         First replace OOV words with unk token.
 
         """
-        self.X = self.tok.texts_to_sequences(texts)
+        self.X, texts_tok = self.convert_to_sequence(texts)
 
         if do_pad:
             if not maxlen:
-                lengths = pd.Series(len(text.split()) for text in texts)
-                for length in range(min(lengths), max(lengths)):
-                    nb_lengths = np.sum(lengths <= length)
-                    if nb_lengths / float(len(texts)) >= maxlen_ratio:
-                        self.maxlen = length
-                        break
+                lengths = [len(text) for text in texts_tok]
+                self.maxlen = int(ceil(np.percentile(lengths, maxlen_ratio*100)))
             else:
                 self.maxlen = maxlen
 
             self.X = sequence.pad_sequences(self.X, maxlen=self.maxlen)
-            self.word2idx['[0]'], self.idx2word[0] = 0, '[0]' # add padding token
-            self.vocab_size += 1
-
-        return self.X
-
-    def texts_to_BoW(self, texts):
-        """Vectorize texts as BoW
-        
-        Parameters
-        ----------
-        texts : list of strings to vectorize into BoW
-        
-        """
-        self.X = self.tok.texts_to_matrix(texts)
-        self.X = self.X[:, 1:] # ignore the padding token prepended by keras
-        self.X = csr_matrix(self.X) # space-saving
 
         return self.X
 
@@ -126,7 +122,9 @@ class Vectorizer:
                 in_pre += 1
             else :
                 self.embeddings[i] = np.random.randn(self.word_dim)
-        return self.embeddings, in_pre
+                
+        print "Found " + str(in_pre) + " words in pubmed out of " + str(len(self.idx2word))
+        return self.embeddings
 
     def test(self, doc_idx):
         """Recover text from vectorized representation of the `doc_idx`th text
