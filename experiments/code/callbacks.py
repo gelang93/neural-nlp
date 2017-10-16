@@ -204,3 +204,24 @@ class AUCLogger(Callback):
         for i in range(self.nb_sample) :
             aucs[i] = roc_auc_score(self.R[i], scores[i])
         logs[self.logname] = np.mean(aucs)
+        
+class LossWeightCallback(Callback) :
+    def __init__(self, trainer) :
+        super(Callback, self).__init__()
+        self.losses = trainer.losses
+        self.loss_weights = trainer.loss_weights
+        self.zero_after = trainer.zero_after
+        self.zero_what = trainer.zero_what
+        
+    def on_train_begin(self, logs={}) :
+        for loss in self.loss_weights :
+            self.loss_weights[loss] = 1.0
+        self.model.compile(optimizer='adam', loss=self.losses, loss_weights=self.loss_weights)
+    
+    def on_epoch_end(self, epoch, logs={}) :
+        if epoch != self.zero_after :
+            return
+        print "Zeroing ...." , self.zero_what
+        for loss in self.zero_what :
+            self.loss_weights[loss] = 0.0
+        self.model.compile(optimizer='adam', loss=self.losses, loss_weights=self.loss_weights)

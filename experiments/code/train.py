@@ -14,7 +14,7 @@ def my_config():
     optimizer = 'adam'
     metric = 'loss'
     callbacks = 'ss,st,al,cb,fl,es,cv'
-    trainer = 'SharedCNNSiameseTrainer'
+    trainer = 'SingleCNNModel2'
     loss = 'hinge'
     nb_train = 1.
     log_full = 'False'

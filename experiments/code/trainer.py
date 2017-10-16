@@ -179,6 +179,8 @@ class Trainer:
         cv = CSVLogger(exp_group, exp_id, fold)
         
         al = AUCLogger(self.C['test_vec'].X, self.C['test_ref'])
+        
+        #zlw = LossWeightCallback(self)
 
         # filter down callbacks
         callback_dict = {'cb': cb, # checkpoint best
@@ -191,7 +193,7 @@ class Trainer:
                          'al': al
         }
         callback_list = self.C['callbacks'].split(',')
-        self.callbacks = [callback_dict[cb_name] for cb_name in callback_list]
+        self.callbacks = [callback_dict[cb_name] for cb_name in callback_list]#+[zlw]
         
         gen_source_target_batches = bg1(X_train, train_cdnos, self)
         batch_size, nb_epoch = self.C['batch_size'], self.C['nb_epoch']
