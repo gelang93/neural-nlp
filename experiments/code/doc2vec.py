@@ -18,7 +18,7 @@ print X[0]
 
 from gensim.models.doc2vec import LabeledSentence, Doc2Vec
 sent_it = (LabeledSentence(s, [str(i)]) for i, s in enumerate(X))
-model = Doc2Vec(size=600, window=10, min_count=5, workers=4, alpha = 0.025, min_alpha=0.025)
+model = Doc2Vec(size=3000, window=10, min_count=5, workers=4, alpha = 0.025, min_alpha=0.025)
 
 model.build_vocab(sent_it)
 
@@ -30,6 +30,6 @@ for epoch in range(10) :
     model.alpha -= 0.002
     model.min_alpha = model.alpha
     
-model.save('../store/doc2vec_model.mod')
+model.save('../store/doc2vec_model_3000.mod')
 
          

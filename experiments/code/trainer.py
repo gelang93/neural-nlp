@@ -7,7 +7,7 @@ import pandas as pd
 
 from sklearn.model_selection import train_test_split
 
-from keras.callbacks import ModelCheckpoint, EarlyStopping
+from keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard
 import keras.backend as K
 
 from batch_generators import bg1, bg2
@@ -64,22 +64,6 @@ class Trainer:
         self.C['train_cdnos'], self.C['val_cdnos'] = train_cdnos, val_cdnos
         self.C['cdnos'] = df.cdno
 
-
-    def load_data(self):
-        """Load inputs
-        
-        Parameters
-        ----------
-        inputs : list of vectorizer names (expected to be in ../data/vectorizers)
-        
-        """
-        self.nb_values = None 
-        
-        for input in self.C['inputs']:
-            self.C[input] = pickle.load(open('../data/vectorizers/{}s.p'.format(input))) 
-            if self.nb_values:
-                assert self.nb_values == len(self.C[input])
-            self.nb_values = len(self.C[input])
             
     def load_data_all_fields(self) :
         self.vec = pickle.load(open('../data/vectorizers/allfields_with_embedding_5000.p', 'rb'))
@@ -91,6 +75,8 @@ class Trainer:
             self.C[input].idx2word = self.vec.idx2word
             self.C[input].word2idx = self.vec.word2idx
             self.C[input].X = self.vec.X[input_range[0]:input_range[1]]
+            # if input in ['population', 'intervention', 'outcome'] :
+            #     self.C[input].X = self.C[input].X[:, -200:]
             if self.nb_values: 
                 assert self.nb_values == len(self.C[input])
             self.nb_values = len(self.C[input])
@@ -110,6 +96,19 @@ class Trainer:
         self.C['test_idxs'] = np.array(df.index)
         self.C['test_vec'] = pickle.load(open('../data/vectorizers/cohendata_dedup_5000.p', 'rb'))
         
+        df = pd.read_csv('../data/files/decision_aids_filter.csv')
+        nb_studies = len(df)
+        H = np.zeros((nb_studies, nb_studies))
+        cdnos = list(set(df.IM_population))
+        for i in range(nb_studies) :
+            H[i, df[df['IM_population'] == df['IM_population'][i]].index] = 1
+        np.fill_diagonal(H, 0)
+        
+        self.C['da_ref'] = H
+        self.C['da_cdnos'] = df.IM_population
+        self.C['da_idxs'] = np.array(df.index)
+        self.C['da_vec'] = pickle.load(open('../data/vectorizers/decision_aids_vec_5000.p', 'rb'))
+        
 
     def common_build_model(self) :
         aspect = self.C['aspect']
@@ -118,32 +117,24 @@ class Trainer:
         aspect_comp.remove(aspect)
         self.C['aspect_comp'] = aspect_comp
         
-        self.modifier = ['same', 'corrupt', 'valid']
+        self.modifier = ['S', 'V', 'C']
         self.fields = []
         for input in self.C['inputs'] :
             for mod in self.modifier :
-                self.fields += [(mod + '_' + input, input)]        
+                self.fields += [(mod + input[0].upper(), input)]        
         
         self.fields_in_train = zip(*self.fields)[0]
 
     def compile_model(self):
-        """Compile keras model
-
-        Also define functions for evaluation.
-
-        """
         print 'Compiling...'
         self.model.summary()
 
     def fit(self):
-        """Set up callbacks and start training"""
-
-        # define callbacks
-        weight_str = '../store/weights/{}/{}/{}-{}.h5'
+        weight_str = '../store/weights/{}/{}/{}.h5'
         exp_group, exp_id = self.C['exp_group'], self.C['exp_id']
-        fold, metric = self.C['fold'], self.C['metric']
+        metric = self.C['metric']
         
-        weight_str = weight_str.format(exp_group, exp_id, fold, {})
+        weight_str = weight_str.format(exp_group, exp_id, {})
         if not os.path.exists(dirname(weight_str)) :
             os.makedirs(dirname(weight_str))
         
@@ -152,7 +143,7 @@ class Trainer:
                              save_best_only=True,
                              mode='min')
         ce = ModelCheckpoint(weight_str.format('val_loss'),
-                             monitor='val_loss', # every time training loss goes down
+                             monitor='val_loss',
                              mode='min')
         
         train_idxs, val_idxs = self.C['train_idxs'], self.C['val_idxs']
@@ -164,25 +155,29 @@ class Trainer:
         train_cdnos = self.C['cdnos'].iloc[train_idxs].reset_index(drop=True)
         val_cdnos = self.C['cdnos'].iloc[val_idxs].reset_index(drop=True)
         
-        batch = bg2(X_val, val_cdnos)
+        batch = bg2(X_val, val_cdnos, nb_sample=self.C['batch_size'])
         
         X_test = {'abstract': self.C['test_vec'].X[self.C['test_idxs']]}
         test_cdnos = self.C['test_cdnos'].reset_index(drop=True)
-        batch_test = bg2(X_test, test_cdnos, 500)
+        batch_test = bg2(X_test, test_cdnos, nb_sample=self.C['batch_size'])
         
-        study_dim = self.model.get_layer('pool').output_shape[-1]
-        ss = StudySimilarityLogger(next(batch), study_dim)
-        sst = StudySimilarityLogger(next(batch_test), study_dim, logname='test_similarity')
+        batch_size, nb_epoch = self.C['batch_size'], self.C['nb_epoch']
+
+        
+        ss = StudySimilarityLogger(next(batch), self, batch_size=batch_size, logname='val_similarity')
+        sst = StudySimilarityLogger(next(batch_test), self, batch_size=batch_size, logname='test_similarity')
 
         es = EarlyStopping(monitor='val_similarity', patience=10, verbose=2, mode='max')
         fl = Flusher()
-        cv = CSVLogger(exp_group, exp_id, fold)
+        cv = CSVLogger(exp_group, exp_id)
         
-        al = AUCLogger(self.C['test_vec'].X, self.C['test_ref'])
+        al = AUCLogger(self.C['test_vec'].X, self.C['test_ref'], self, batch_size=batch_size)
+        pal = PerAspectAUCLogger(self.C['da_vec'].X, self.C['da_ref'], self, batch_size=batch_size)
+        
+        tb = TensorBoard()
         
         #zlw = LossWeightCallback(self)
 
-        # filter down callbacks
         callback_dict = {'cb': cb, # checkpoint best
                          'ce': ce, # checkpoint every
                          'fl': fl, # flusher
@@ -193,10 +188,9 @@ class Trainer:
                          'al': al
         }
         callback_list = self.C['callbacks'].split(',')
-        self.callbacks = [callback_dict[cb_name] for cb_name in callback_list]#+[zlw]
+        self.callbacks = [pal]+[callback_dict[cb_name] for cb_name in callback_list]+[tb]#+[zlw]
         
-        gen_source_target_batches = bg1(X_train, train_cdnos, self)
-        batch_size, nb_epoch = self.C['batch_size'], self.C['nb_epoch']
+        gen_source_target_batches = bg1(X_train, train_cdnos, self, nb_sample=batch_size)
 
         nb_train = len(train_idxs)
         self.model.fit_generator(gen_source_target_batches,

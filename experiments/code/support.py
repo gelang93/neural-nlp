@@ -7,46 +7,81 @@ import pandas as pd
 
 import keras.backend as K
 from keras.utils.np_utils import to_categorical
-from keras.regularizers import l2
-from keras.layers import Flatten
+from keras.regularizers import l2, l1
+from keras.layers import Flatten, Lambda
 from keras.models import Model
+from keras.layers import LeakyReLU
 
-def norm(x):
-    """Compute the frobenius norm of x
+from keras.engine.topology import Layer
 
-    Parameters
-    ----------
-    x : a keras tensor
+from keras.layers import Conv1D, MaxPooling1D, Flatten, Input, Permute, Activation
+from keras.layers.merge import concatenate, Multiply
+from keras.layers.core import Dropout
 
-    """
-    return K.sqrt(K.sum(K.square(x)))
+def norm(x, axis=1, keepdims=True):
+    return K.sqrt(K.sum(K.square(x), axis=axis, keepdims=keepdims))
 
 def get_trainable_weights(model):
-    """Find all layers which are trainable in the model
-
-    Surprisingly `model.trainable_weights` will return layers for which
-    `trainable=False` has been set, hence the extra check.
-
-    """
     tensors = [tensor for tensor in model.trainable_weights if model.get_layer(tensor.name[:-2]).trainable]
     names = [tensor.name for tensor in tensors]
 
     return names, tensors
 
-def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, word_dim, reg, name):
-    """Add conv -> max_pool -> flatten for each filter length
+from keras.activations import softmax
+softmax_pooling = Lambda(lambda s : K.sum(softmax(s, axis=1)*s, axis=1, keepdims=True))
+
+def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, reg):
+    from keras.layers import Conv1D, MaxPooling1D, Flatten, Input, Permute, Activation
+    from keras.layers.merge import concatenate
+    from keras.layers.core import Dropout
+
+    activations = [0]*len(filter_lens)
+    convolutions = []
+    for i, filter_len in enumerate(filter_lens):
+        convolved = Conv1D(nb_filter, 
+                           filter_len, 
+                           activation='relu',
+                           kernel_regularizer=l2(reg))(embedding_layer)
+        convolutions.append(convolved)
+        # l_1 = Permute((2,1))(convolved)
+        # l_2 = Activation('softmax')(l_1)
+        # l_3 = Permute((2,1))(l_2)
+        # l_3 = Lambda(lambda s : K.sum(s[0]*s[1], axis=1, keepdims=True))([l_3, convolved])
+        #max_pooled = l_3
+        max_pooled = MaxPooling1D(pool_size=max_doclen-filter_len+1)(convolved) # max-1 pooling
+        flattened = Flatten()(max_pooled)
+
+        activations[i] = flattened
+
+    concat = concatenate(activations) if len(filter_lens) > 1 else flattened
+    convolutions = concatenate(convolutions, axis=1) if len(filter_lens) > 1 else convolved
+    concat = Dropout(0.3)(concat)
+    return concat, convolutions
+
+def lstm_embed(embedding_layer, hidden_dim) :
+    from keras.layers.recurrent import LSTM
+    from keras.layers.wrappers import Bidirectional
+    from keras.layers.core import Dropout
+    lstm = Bidirectional(LSTM(hidden_dim, return_sequences=True, dropout=0.5, recurrent_dropout=0.2))(embedding_layer)
+    return lstm
+
+def gated_cnn(lookup, kernel_size, nb_filter, reg) :
+    convolved = Conv1D(nb_filter, kernel_size, activation='linear', padding='same', kernel_regularizer=l2(reg))(lookup)
+    gates = Conv1D(nb_filter, kernel_size, activation='relu', padding='same', kernel_regularizer=l2(reg))(lookup)
+    return Multiply()([convolved, gates])
+
+def gated_cnn_joint(lookup, kernel_size, nb_filter, nb_aspect, reg) :
+    nets = []
+    gates = []
+    convolved = Conv1D(nb_filter, kernel_size, activation='linear', padding='same', kernel_regularizer=l2(reg))(lookup)
+    for i in range(nb_aspect) :
+        gate = Conv1D(nb_filter, kernel_size, activation='relu', padding='same', kernel_regularizer=l2(reg))(lookup)
+        nets.append(Multiply()([convolved, gate]))
+        gates.append(gate)
+    return nets, gates
     
-    Parameters
-    ----------
-    words : tensor of shape (max_doclen, vector_dim)
-    filter_lens : list of n-gram filers to run over `words`
-    nb_filter : number of each ngram filters to use
-    max_doclen : length of the document
-    reg : regularization strength
-    name : name to give the merged vector
-    
-    """
-    from keras.layers import Conv1D, MaxPooling1D, Flatten, Input
+def cnn_embed_reshape(embedding_layer, filter_lens, nb_filter, nb_aspect, max_doclen, reg):
+    from keras.layers import Conv1D, MaxPooling1D, Flatten, Reshape
     from keras.layers.merge import concatenate
     from keras.layers.core import Dropout
 
@@ -56,19 +91,30 @@ def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, word_dim, reg
                            filter_len, 
                            activation='relu',
                            kernel_regularizer=l2(reg))(embedding_layer)
-
         max_pooled = MaxPooling1D(pool_size=max_doclen-filter_len+1)(convolved) # max-1 pooling
         flattened = Flatten()(max_pooled)
-
+        flattened = Reshape((nb_aspect, nb_filter/nb_aspect))(flattened)
         activations[i] = flattened
 
-    concat = concatenate(activations, name=name) if len(filter_lens) > 1 else flattened
+    concat = concatenate(activations, axis=-1) if len(filter_lens) > 1 else flattened
     concat = Dropout(0.5)(concat)
     return concat
 
-def lstm_embed(embedding_layer, hidden_dim, reg) :
-    from keras.layers.recurrent import LSTM
-    from keras.layers.wrappers import Bidirectional
-    from keras.layers.core import Dropout
-    lstm = Bidirectional(LSTM(hidden_dim, dropout=0.5, recurrent_dropout=0.2))(embedding_layer)
-    return lstm
+def cnn_embed_me(el1, el2, filter_lens, nb_filter, mlen1, mlen2, reg):
+    a1, a2 = [0]*len(filter_lens), [0]*len(filter_lens)
+    for i, filter_len in enumerate(filter_lens):
+        convolved = Conv1D(nb_filter, 
+                           filter_len, 
+                           activation='relu',
+                           kernel_regularizer=l2(reg))
+        c1, c2 = convolved(el1), convolved(el2)
+        mp1 = MaxPooling1D(pool_size=mlen1-filter_len+1)(c1)
+        mp2 = MaxPooling1D(pool_size=mlen2-filter_len+1)(c2)
+        f1, f2 = Flatten()(mp1), Flatten()(mp2)
+        a1[i], a2[i] = f1, f2
+
+    concat1 = concatenate(a1) if len(filter_lens) > 1 else f1
+    concat2 = concatenate(a2) if len(filter_lens) > 1 else f2
+
+    concat1, concat2 = Dropout(0.5)(concat1), Dropout(0.5)(concat2)
+    return concat1, concat2

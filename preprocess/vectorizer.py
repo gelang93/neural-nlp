@@ -12,6 +12,9 @@ from nltk.tokenize import word_tokenize
 from scipy.sparse import csr_matrix
 from math import ceil
 
+# import spacy
+# nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
+# print nlp.pipeline
 
 class Vectorizer:
     """Tiny class for fitting a vocabulary and vectorizing texts.
@@ -38,13 +41,17 @@ class Vectorizer:
 
         return self.X[given]
     
-    def tokenizer(self, text) :
+    def tokenizer(self, text, which=False) :
+        # if which :
+        #     text = [t.text for t in nlp(unicode(text, 'utf-8').lower())]
+        # else :
+        #     text = [t.text for t in nlp(unicode(text).lower())]
         text = word_tokenize(text.lower())
         text = ['qqq' if any(char.isdigit() for char in word) else word for word in text]
         return text
     
     def convert_to_sequence(self, texts) :
-        texts_tokenized = map(lambda s : self.tokenizer(s), texts)
+        texts_tokenized = map(lambda s : self.tokenizer(s, which=True), texts)
         texts_tokenized = map(lambda s : ['unk' if word not in self.word2idx else word for word in s], texts_tokenized)
         sequences = map(lambda s : [self.word2idx[word] for word in s], texts_tokenized)
         return sequences, texts_tokenized
@@ -60,8 +67,8 @@ class Vectorizer:
         """
         cvec = CountVectorizer(tokenizer=self.tokenizer, max_features=self.num_words)
         cvec.fit(texts)
-        
-        self.word2idx = self.cvec.vocabulary_
+                
+        self.word2idx = cvec.vocabulary_
         for word in self.word2idx :
             self.word2idx[word] += 2
             

@@ -47,9 +47,9 @@ def cdno_matrix_generator(X, cdnos, nb_sample, seed):
             different_study_idx = random.choice(corrupt_study_idxs)
             different_study_idxs.append(different_study_idx)
 
-        X_study = {'same_'+field: X[field][study_idxs] for field in fields if field in X}
-        X_same_study = {'valid_'+field: X[field][same_study_idxs] for field in fields if field in X}
-        X_different_study = {'corrupt_'+field: X[field][different_study_idxs] for field in fields if field in X}
+        X_study = {'S'+field[0].upper(): X[field][study_idxs] for field in fields if field in X}
+        X_same_study = {'V'+field[0].upper(): X[field][same_study_idxs] for field in fields if field in X}
+        X_different_study = {'C'+field[0].upper(): X[field][different_study_idxs] for field in fields if field in X}
 
         X_batch = dict(X_study.items() + X_same_study.items() + X_different_study.items())
         yield X_batch
@@ -57,12 +57,7 @@ def cdno_matrix_generator(X, cdnos, nb_sample, seed):
 def bg1(X, cdnos, trainer, nb_sample=128, seed=1337):
     """Batch generator 1
 
-    Samples a batch dict containing
-
-    - {X_a, X_p, X_i, X_o,
-            X_p',
-            X_p~
-      }
+    3 (SVC) x 4 (APIO)
 
     """
     fields = trainer.fields_in_train
@@ -77,15 +72,10 @@ def bg1(X, cdnos, trainer, nb_sample=128, seed=1337):
 def bg2(X, cdnos, nb_sample=128, seed=1337):
     """Batch generator 2
 
-    Samples a batch dict containing
-
-    - {X_a,
-       X_a',
-       X_a~
-      }
+    3 (SVC) x 1 (A)
 
     """
-    fields = ['same_abstract', 'valid_abstract', 'corrupt_abstract']
+    fields = ['SA', 'VA', 'CA']
 
     batch = cdno_matrix_generator(X, cdnos, nb_sample, seed)
     X_batch = next(batch)
