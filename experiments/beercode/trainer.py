@@ -25,17 +25,23 @@ class Trainer:
         self.C = config
             
     def load_data(self) :
-        self.vec = pickle.load(open('../../beer_data/beer_vec_ds_2000.p', 'rb'))
+        self.vec = pickle.load(open('../../beer_data/beer_vec_ds_df10.p', 'rb'))
+        print self.vec.vocab_size
+        # X_tf = np.zeros((self.vec.X.shape[0], self.vec.vocab_size))
+        # for i in range(len(self.vec.X)) :
+        #     X_tf[i, self.vec.X[i, :]] = 1.
+
+        # X_tf = X_tf[:, 2:]
+        # self.vec.X = X_tf
+
         ds = pd.read_csv('../../beer_data/beer_ds.csv')
-        #ds = ds.groupby(['beer/style'])#.filter(lambda g : len(g) > 20)
         
         from ast import literal_eval as make_tuple
         ds['bits'] = ds['bits'].map(lambda s : make_tuple(s))
             
         aspect_columns = sorted(['review/appearance', 'review/taste', 'review/aroma', 'review/palate'])
         
-        train_idxs, val_idxs = train_test_split(ds.index, stratify=ds['bits'], train_size=0.9)
-        #train_idxs, val_idxs = train_test_split(ds.index, stratify=ds['beer/style'], train_size=0.9)
+        train_idxs, val_idxs = train_test_split(ds.index, stratify=ds['bits'], train_size=0.9, random_state=1337)
         self.C['train_idxs'], self.C['val_idxs'] = train_idxs, val_idxs
 
         print len(train_idxs), len(val_idxs)
@@ -58,11 +64,8 @@ class Trainer:
             os.makedirs(dirname(weight_str))
         
         cb = ModelCheckpoint(weight_str.format(metric),
-                             monitor='loss',
-                             save_best_only=True,
-                             mode='min')
-        ce = ModelCheckpoint(weight_str.format('val_loss'),
                              monitor='val_loss',
+                             save_best_only=True,
                              mode='min')
         
         train_idxs, val_idxs = self.C['train_idxs'], self.C['val_idxs']
@@ -73,7 +76,7 @@ class Trainer:
         val_gen = bg1(self.vec.X, self.ds.loc[val_idxs], self, nb_sample=batch_size)
 
         pal = PerAspectAUCLogger(X=self.vec.X, idxs=val_idxs, trainer=self, batch_size=batch_size)
-        es = EarlyStopping(monitor='val_loss', patience=10, verbose=2, mode='min')
+        es = EarlyStopping(monitor='val_loss', patience=2, verbose=2, mode='min')
         fl = Flusher()
         cv = CSVLogger(exp_group, exp_id)
         
@@ -81,7 +84,6 @@ class Trainer:
         
         callback_dict = {#'al': pal,
                          'cb': cb, # checkpoint best
-                         'ce': ce, # checkpoint every
                          'fl': fl, # flusher
                          'es': es, # early stopping
                          'cv': cv, # should go *last* as other callbacks populate `logs` dict

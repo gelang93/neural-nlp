@@ -14,13 +14,13 @@ def my_config():
     optimizer = 'adam'
     metric = 'loss'
     callbacks = 'cb,fl,es,cv'
-    trainer = 'BagCNNModel'
+    trainer = 'NVDMModel'
     loss = 'hinge'
     nb_train = 1.
     log_full = 'False'
     train_size = .90
     exp_group = 'food'
-    exp_id = time_str
+    exp_id = time_str + 'final1nvdm'
     nb_epoch = 20
 
 @ex.automain

@@ -4,22 +4,25 @@ import keras.backend as K
 from keras.layers import Input, Embedding, Dropout, Dense, LSTM, merge, Lambda, Concatenate
 from keras.layers import Conv1D, GlobalMaxPooling1D, Flatten, merge
 from keras.layers import Activation, Lambda, ActivityRegularization
-from keras.layers.merge import Dot
+from keras.layers.merge import Dot, Multiply, Add
 from keras.models import Model
 from keras.regularizers import l2
 
 from keras.optimizers import Adam
 
 from trainer import Trainer
-from support import cnn_embed, Bilinear
+from support import cnn_embed, Bilinear, gated_cnn
 
 import numpy as np
 
 def contrastive_loss(y_true, y_pred) :
     return K.mean((1 - y_true) * y_pred + (y_true) * K.maximum(0., 1. - y_pred), axis=-1)
 
+def contrastive_loss(y_true, y_pred) :
+    return K.mean(K.maximum(0., 1. - y_pred), axis=-1)
+
 class PredCNNModel(Trainer) :
-    def build_model(self, nb_filter=300, filter_lens=range(1,6), reg=0.000):
+    def build_model(self, nb_filter=300, filter_lens=range(1,6), reg=0.00001):
         self.aspects = ['bit', 'domain']
 
         inputs = {}
@@ -31,22 +34,51 @@ class PredCNNModel(Trainer) :
         maxlen = self.vec.maxlen
         word_dim, vocab_size = self.vec.word_dim, self.vec.vocab_size
 
-        input = Input(shape=[maxlen], dtype='int32')
+        input = Input(shape=[maxlen], dtype='float32')
+        padding = Lambda(lambda s : K.expand_dims(K.clip(s, 0, 1)))(input)
+
+        def mwp(seq) :
+            return Multiply()([seq, padding])
+
         lookup = Embedding(output_dim=word_dim, 
                 input_dim=vocab_size, 
                 name='embedding',
                 weights=[self.vec.embeddings])(input)
+        lookup = mwp(lookup)
         
         models = OrderedDict()
+        sum_normalize = Lambda(lambda s : K.l2_normalize(K.sum(s, axis=1),axis=-1))
+        normalize = Lambda(lambda s : K.l2_normalize(s, axis=1))
+
         for aspect in self.aspects:
-            cnn_network, convs = cnn_embed(lookup, filter_lens, nb_filter, maxlen, word_dim, reg, name='pool_'+aspect)
+            #cnn_network, convs = cnn_embed(lookup, filter_lens, nb_filter, maxlen, word_dim, reg, name='pool_'+aspect)
+            network1, gates1 = gated_cnn(lookup, 1, 200, reg)
+            network1 = mwp(network1)
+
+            network2, gates2 = gated_cnn(network1, 3, 200, reg)
+            network2 = mwp(network2)
+
+            network2 = Add()([network1, network2])
+                   
+            network3, gates3 = gated_cnn(network2, 5, 200, reg)
+            network3 = mwp(network3)
+
+            network3 = Add()([network1, network2, network3])
+
+            gates4 = mwp(gates3)
+            
+            network3 = Multiply()([network3, gates4])
+
+            network3 = sum_normalize(network3)
+            cnn_network = network3
+
             model = Model(input, cnn_network)
             model.name = 'pool_' + aspect
             models[aspect] = model            
                     
         I = OrderedDict()
         for input in inputs :
-            I[input] = Input(shape=[maxlen], dtype='int32', name=inputs[input])
+            I[input] = Input(shape=[maxlen], dtype='float32', name=inputs[input])
                         
         C = OrderedDict()
         for aspect in self.aspects :
@@ -56,15 +88,12 @@ class PredCNNModel(Trainer) :
 
         models_pred = OrderedDict()
         for aspect in self.aspects :
-            input_1 = Input(shape=[maxlen], dtype='int32', name='A1')
-            input_2 = Input(shape=[maxlen], dtype='int32', name='A2')
+            input_1 = Input(shape=[maxlen], dtype='float32', name='A1')
+            input_2 = Input(shape=[maxlen], dtype='float32', name='A2')
             embed_model = models[aspect]
             embed_1 = embed_model(input_1)
             embed_2 = embed_model(input_2)
-            B = Dense(1, name='D'+aspect)
-            #diff = Lambda(lambda s : K.sum(s[0] * s[1], axis=-1, keepdims=True))([embed_1, embed_2])
-            diff = Lambda(lambda s : K.sum(K.l2_normalize(s[0], axis=-1) * K.l2_normalize(s[1], axis=-1), axis=-1, keepdims=True))([embed_1, embed_2])
-            output = Activation('linear')(diff)
+            output = Dot(axes=1)([embed_1, embed_2])
             model_pred = Model([input_1, input_2], [output])
             model_pred.name = 'pred_'+aspect
             models_pred[aspect] = model_pred
@@ -82,14 +111,14 @@ class PredCNNModel(Trainer) :
             name_s = 'O_S'+aspect+'_score'
             name_d = 'O_D'+aspect+'_score'
             
-            D[name_s] = Activation('linear', name=name_s)(P[(aspect, 'S')])
-            D[name_d] = Activation('linear', name=name_d)(P[(aspect, 'D')])
-
+            #D[name_s] = Activation('linear', name=name_s)(P[(aspect, 'S')])
+            #D[name_d] = Activation('linear', name=name_d)(P[(aspect, 'D')])
+            D[name_s] = Lambda(lambda s : s[0] - s[1], name=name_s)([P[(aspect, 'S')], P[(aspect, 'D')]])
             #self.losses[name_s] = 'binary_crossentropy'
             #self.losses[name_d] = 'binary_crossentropy'
 
             self.losses[name_s] = contrastive_loss
-            self.losses[name_d] = contrastive_loss
+            #self.losses[name_d] = contrastive_loss
                    
         self.model = Model(inputs=I.values(), outputs=D.values())
             

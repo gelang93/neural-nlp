@@ -81,25 +81,6 @@ class PerAspectAUCLogger(Callback) :
         self.logname = logname
         self.batch_size = batch_size
 
-    def create_style_matrix(self) :
-        ds = self.trainer.ds
-        aspect_columns = self.trainer.aspect_columns
-        idxs = self.idxs
-        self.H = {}
-        style2idxs = {}
-        for style in ds['beer/style'].unique() :
-            style2idxs[style] = set(ds[ds['beer/style'] == style].index) & set(idxs)
-            style2idxs[style] = map(lambda s : list(idxs).index(s), style2idxs[style])
-
-        H = np.zeros((len(idxs), len(idxs)))
-        for i in range(len(idxs)) :
-            same_style = style2idxs[ds['beer/style'][idxs[i]]]
-            H[i, same_style] = 1
-        
-        H[np.arange(len(idxs)), np.arange(len(idxs))] = 0
-        for i in range(4) :
-            self.H[str(i)] = H
-
     def create_bit_matrix(self) :
         ds = self.trainer.ds
         aspect_columns = self.trainer.aspect_columns
@@ -120,7 +101,6 @@ class PerAspectAUCLogger(Callback) :
 
     def on_train_begin(self, logs={}) :
         self.create_bit_matrix()
-        #self.create_style_matrix()
         self.embed_studies, self.aspect_embeds = self.trainer.construct_evaluation_model(self.model, aspect_specific=True)
 
     def on_epoch_end(self, epoch, logs={}) :
@@ -147,15 +127,4 @@ class PerAspectAUCLogger(Callback) :
                     aucs[i] = roc_auc_score(self.H[aspect_j][i], scores[i])
                 logs[self.logname+'_'+aspect+'_'+aspect_j] = np.mean(aucs)
                 print aspect, aspect_j, logs[self.logname+'_'+aspect+'_'+aspect_j]
-
-        # joined_vec = np.concatenate(vecs.values(), axis=-1)
-        # scores = np.dot(joined_vec, joined_vec.T)/4
-        # scores[np.arange(self.nb_sample), np.arange(self.nb_sample)] = -1000
-        # aucs = [0] * self.nb_sample
-        # for i in range(self.nb_sample) :
-        #     aucs[i] = roc_auc_score(self.H['0'][i], scores[i])
-        # logs[self.logname+'_join'] = np.mean(aucs)
-        # print 'join', logs[self.logname+'_join']
-
-
         print ""

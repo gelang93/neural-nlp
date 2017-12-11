@@ -14,7 +14,7 @@ from keras.layers import LeakyReLU
 
 from keras.engine.topology import Layer
 
-from keras.layers import Conv1D, MaxPooling1D, Flatten, Input, Permute, Activation
+from keras.layers import Conv1D, MaxPooling1D, Flatten, Input, Permute, Activation, PReLU
 from keras.layers.merge import concatenate, Multiply
 from keras.layers.core import Dropout
 
@@ -67,8 +67,19 @@ def lstm_embed(embedding_layer, hidden_dim) :
 
 def gated_cnn(lookup, kernel_size, nb_filter, reg) :
     convolved = Conv1D(nb_filter, kernel_size, activation='linear', padding='same', kernel_regularizer=l2(reg))(lookup)
-    gates = Conv1D(nb_filter, kernel_size, activation='relu', padding='same', kernel_regularizer=l2(reg))(lookup)
-    return Multiply()([convolved, gates])
+    convolved = PReLU(shared_axes=[1])(convolved)
+    # model_gates = Conv1D(nb_filter, kernel_size, activation="sigmoid", padding='same', kernel_regularizer=l2(reg))(lookup)
+    # convolved = Multiply()([convolved, model_gates])
+    # convolved_s = Permute((2, 1))(convolved)
+    # convolved_s = Activation('softmax')(convolved_s)
+    # convolved_s = Permute((2, 1))(convolved_s)
+    gates = Conv1D(1, kernel_size, 
+                        activation='sigmoid',  padding='same',
+                        kernel_regularizer=l2(reg),
+                        activity_regularizer=l1(reg*0.01))(lookup)
+    #return Multiply()([convolved, gates])
+    #return Multiply()([convolved, convolved_s])
+    return convolved, gates
 
 def gated_cnn_joint(lookup, kernel_size, nb_filter, nb_aspect, reg) :
     nets = []

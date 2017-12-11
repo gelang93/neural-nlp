@@ -8,7 +8,7 @@ from keras.regularizers import l2, l1
 from keras.models import Model
 from keras.engine.topology import Layer
 
-from keras.layers import Conv1D, MaxPooling1D, Flatten, Input, Permute, Activation, Dense, Lambda
+from keras.layers import Conv1D, MaxPooling1D, Flatten, Input, Permute, Activation, Dense, Lambda, PReLU
 from keras.layers.merge import concatenate
 from keras.layers.core import Dropout
 
@@ -75,3 +75,17 @@ class Element_wise_weighting(Layer) :
     
     def compute_output_shape(self, input_shape) :
         return tuple(list(input_shape) + [self.nb_aspects])
+
+def gated_cnn(lookup, kernel_size, nb_filter, reg) :
+    convolved = Conv1D(nb_filter, kernel_size, activation='linear', padding='same', kernel_regularizer=l2(reg))(lookup)
+    convolved = PReLU(shared_axes=[1])(convolved)
+    # convolved_s = Permute((2, 1))(convolved)
+    # convolved_s = Activation('softmax')(convolved_s)
+    # convolved_s = Permute((2, 1))(convolved_s)
+    gates = Conv1D(1, kernel_size, 
+                        activation='sigmoid',  padding='same',
+                        kernel_regularizer=l2(reg),
+                        activity_regularizer=l1(reg))(lookup)
+    #return Multiply()([convolved, gates])
+    #return Multiply()([convolved, convolved_s])
+    return convolved, gates

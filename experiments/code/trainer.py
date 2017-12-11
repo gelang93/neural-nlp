@@ -75,6 +75,13 @@ class Trainer:
             self.C[input].idx2word = self.vec.idx2word
             self.C[input].word2idx = self.vec.word2idx
             self.C[input].X = self.vec.X[input_range[0]:input_range[1]]
+
+            # X_tf = np.zeros((self.C[input].X.shape[0], self.vec.vocab_size))
+            # for i in range(len(self.C[input].X)) :
+            #     X_tf[i, self.C[input].X[i, :]] = 1.
+
+            # X_tf = X_tf[:, 2:]
+            # self.C[input].X = X_tf
             # if input in ['population', 'intervention', 'outcome'] :
             #     self.C[input].X = self.C[input].X[:, -200:]
             if self.nb_values: 
@@ -95,6 +102,13 @@ class Trainer:
         self.C['test_cdnos'] = df.cdno
         self.C['test_idxs'] = np.array(df.index)
         self.C['test_vec'] = pickle.load(open('../data/vectorizers/cohendata_dedup_5000.p', 'rb'))
+
+        # X_tf = np.zeros((self.C['test_vec'].X.shape[0], self.vec.vocab_size))
+        # for i in range(len(self.C['test_vec'].X)) :
+        #     X_tf[i, self.C['test_vec'].X[i, :]] = 1.
+
+        # X_tf = X_tf[:, 2:]
+        # self.C['test_vec'].X = X_tf
         
         df = pd.read_csv('../data/files/decision_aids_filter.csv')
         nb_studies = len(df)
@@ -108,6 +122,13 @@ class Trainer:
         self.C['da_cdnos'] = df.IM_population
         self.C['da_idxs'] = np.array(df.index)
         self.C['da_vec'] = pickle.load(open('../data/vectorizers/decision_aids_vec_5000.p', 'rb'))
+
+        # X_tf = np.zeros((self.C['da_vec'].X.shape[0], self.vec.vocab_size))
+        # for i in range(len(self.C['da_vec'].X)) :
+        #     X_tf[i, self.C['da_vec'].X[i, :]] = 1.
+
+        # X_tf = X_tf[:, 2:]
+        # self.C['da_vec'].X = X_tf
         
 
     def common_build_model(self) :
@@ -139,7 +160,7 @@ class Trainer:
             os.makedirs(dirname(weight_str))
         
         cb = ModelCheckpoint(weight_str.format(metric),
-                             monitor='loss',
+                             monitor='val_loss',
                              save_best_only=True,
                              mode='min')
         ce = ModelCheckpoint(weight_str.format('val_loss'),
@@ -167,7 +188,7 @@ class Trainer:
         ss = StudySimilarityLogger(next(batch), self, batch_size=batch_size, logname='val_similarity')
         sst = StudySimilarityLogger(next(batch_test), self, batch_size=batch_size, logname='test_similarity')
 
-        es = EarlyStopping(monitor='val_similarity', patience=10, verbose=2, mode='max')
+        es = EarlyStopping(monitor='val_loss', patience=2, verbose=2, mode='min')
         fl = Flusher()
         cv = CSVLogger(exp_group, exp_id)
         
@@ -191,10 +212,13 @@ class Trainer:
         self.callbacks = [pal]+[callback_dict[cb_name] for cb_name in callback_list]+[tb]#+[zlw]
         
         gen_source_target_batches = bg1(X_train, train_cdnos, self, nb_sample=batch_size)
+        gen_validation_batches = bg1(X_val, val_cdnos, self, nb_sample=batch_size)
 
         nb_train = len(train_idxs)
         self.model.fit_generator(gen_source_target_batches,
                                  steps_per_epoch=(nb_train/batch_size),
                                  epochs=nb_epoch,
                                  verbose=2,
-                                 callbacks=self.callbacks)
+                                 callbacks=self.callbacks,
+                                 validation_steps=2,
+                                 validation_data = gen_validation_batches)

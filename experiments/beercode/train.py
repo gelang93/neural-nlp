@@ -8,13 +8,13 @@ ex = Experiment()
 
 @ex.config
 def my_config():
-    batch_size = 32
+    batch_size = 64
     n_folds = 5
     fold = 0
     optimizer = 'adam'
     metric = 'loss'
-    callbacks = 'cb,fl,cv'
-    trainer = 'Gated2CNNModel'
+    callbacks = 'es,cb,fl,cv'
+    trainer = 'CountModel'
     loss = 'hinge'
     nb_train = 1.
     log_full = 'False'

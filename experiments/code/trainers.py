@@ -6,3 +6,4 @@ from SingleLSTMModel import *
 from SingleMECNNModel import *
 from RandLossCNNModel import *
 from GatedCNNModel import *
+from CountModel import *

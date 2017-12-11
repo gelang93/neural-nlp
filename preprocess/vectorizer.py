@@ -12,9 +12,9 @@ from nltk.tokenize import word_tokenize
 from scipy.sparse import csr_matrix
 from math import ceil
 
-# import spacy
-# nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
-# print nlp.pipeline
+import spacy
+nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
+print nlp.pipeline
 
 class Vectorizer:
     """Tiny class for fitting a vocabulary and vectorizing texts.
@@ -26,10 +26,11 @@ class Vectorizer:
     models.
 
     """
-    def __init__(self, num_words=None):
+    def __init__(self, num_words=None, min_df=None):
         self.embeddings = None
-        self.word_dim = 300
+        self.word_dim = 200
         self.num_words = num_words
+        self.min_df = min_df
 
     def __len__(self):
         """Return the length of X"""
@@ -42,11 +43,11 @@ class Vectorizer:
         return self.X[given]
     
     def tokenizer(self, text, which=False) :
-        # if which :
-        #     text = [t.text for t in nlp(unicode(text, 'utf-8').lower())]
-        # else :
-        #     text = [t.text for t in nlp(unicode(text).lower())]
-        text = word_tokenize(text.lower())
+        if which :
+            text = [t.text for t in nlp(unicode(text, 'utf-8').lower())]
+        else :
+            text = [t.text for t in nlp(unicode(text).lower())]
+        #text = word_tokenize(text.lower())
         text = ['qqq' if any(char.isdigit() for char in word) else word for word in text]
         return text
     
@@ -65,7 +66,7 @@ class Vectorizer:
         word_list : list of words to include in the text
         
         """
-        cvec = CountVectorizer(tokenizer=self.tokenizer, max_features=self.num_words)
+        cvec = CountVectorizer(tokenizer=self.tokenizer, min_df=self.min_df)#, max_features=self.num_words)
         cvec.fit(texts)
                 
         self.word2idx = cvec.vocabulary_

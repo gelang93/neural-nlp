@@ -8,14 +8,9 @@ from keras.regularizers import l2, l1
 from keras.models import Model
 from keras.engine.topology import Layer
 
-from keras.layers import Conv1D, MaxPooling1D, Flatten, Input, Permute, Activation, Dense, Lambda, TimeDistributed
+from keras.layers import Conv1D, MaxPooling1D, Flatten, Input, Permute, Activation, Dense, Lambda, TimeDistributed, PReLU
 from keras.layers.merge import concatenate, Multiply
 from keras.layers.core import Dropout
-
-from keras.layers import LeakyReLU
-
-def norm(x, axis=1, keepdims=True):
-    return K.sqrt(K.sum(K.square(x), axis=axis, keepdims=keepdims))
 
 def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, word_dim, reg, name):   
     activations = [0]*len(filter_lens)
@@ -39,43 +34,14 @@ def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, word_dim, reg
 
 def gated_cnn(lookup, kernel_size, nb_filter, reg) :
     convolved = Conv1D(nb_filter, kernel_size, activation='linear', padding='same', kernel_regularizer=l2(reg))(lookup)
-    gates = Conv1D(nb_filter, kernel_size, activation='relu', padding='same', kernel_regularizer=l2(reg))(lookup)
-    return Multiply()([convolved, gates])
+    convolved = PReLU(shared_axes=[1])(convolved)
+    
+    #gates = Conv1D(nb_filter, kernel_size, activation='sigmoid', padding='same', kernel_regularizer=l2(reg))(lookup)
 
-def gated_cnn_joint(lookup, kernel_size, nb_filter, nb_aspect, reg) :
-    nets = []
-    gates = []
-    convolved = Conv1D(nb_filter, kernel_size, activation='linear', padding='same', kernel_regularizer=l2(reg))(lookup)
-    for i in range(nb_aspect) :
-        gate = Conv1D(nb_filter, kernel_size, activation='relu', padding='same', kernel_regularizer=l2(reg))(lookup)
-        nets.append(Multiply()([convolved, gate]))
-        gates.append(gate)
-    return nets, gates
-
-
-def gated_cnn_joint_softmax(lookup, kernel_size, nb_filter, nb_aspect, reg) :
-    nets = []
-    convolved = Conv1D(nb_filter, kernel_size, activation='linear', kernel_regularizer=l2(reg))(lookup)
-
-    for i in range(nb_aspect) :
-        gates = Conv1D(nb_filter, kernel_size, activation='sigmoid', kernel_regularizer=l2(reg))(lookup)
-        nets.append(Multiply()([gates, convolved]))
-
-    softmax_gates = Conv1D(nb_aspect, kernel_size, activation='linear', kernel_regularizer=l2(reg))(lookup)
-    softmax_gates = Activation('softmax')(softmax_gates)
-
-    for i in range(nb_aspect) :
-        net = nets[i]
-        gate = Lambda(lambda s : K.expand_dims(s[:,:,i]))(softmax_gates)
-        nets[i] = Multiply()([net, gate])
-
-    return nets, nets
-
-def gated_cnn_joint_sub(lookup, kernel_size, nb_filter, nb_aspect, reg) :
-    nets = []
-    convolved = Conv1D(nb_filter, kernel_size, activation='linear', kernel_regularizer=l2(reg))(lookup)
-    gate = Conv1D(nb_filter, kernel_size, activation='sigmoid', kernel_regularizer=l2(reg))(lookup)
-    gates = [gate, Lambda(lambda s : 1 - s)(gate)]
-    for i in range(nb_aspect) :
-        nets.append(Multiply()([convolved, gates[i]]))
-    return nets
+    out_gates = Conv1D(1, kernel_size, 
+                        activation='sigmoid', 
+                        padding='same', 
+                        kernel_regularizer=l2(reg),
+                        activity_regularizer=l1(reg))(lookup)
+    #return Multiply()([convolved, out_gates]), out_gates
+    return convolved, out_gates

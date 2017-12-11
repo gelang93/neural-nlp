@@ -1,30 +1,27 @@
 from collections import OrderedDict
 
 import keras.backend as K
-from keras.layers import Input, Embedding, Dropout, Dense, LSTM, merge, Lambda, Concatenate
-from keras.layers import Conv1D, GlobalMaxPooling1D, Flatten, merge
+from keras.layers import Input, Embedding, Dropout, Dense, LSTM, merge, Lambda, Concatenate, Reshape
+from keras.layers import Conv1D, AveragePooling1D, Flatten, merge, LocallyConnected1D, TimeDistributed
 from keras.layers import Activation, Lambda, ActivityRegularization
-from keras.layers.merge import Dot, Add
+from keras.layers.merge import Dot, Add, Multiply
 from keras.models import Model
 from keras.regularizers import l2
 
 from keras.optimizers import Adam
 
 from trainer import Trainer
-from support import cnn_embed, gated_cnn, gated_cnn_joint, gated_cnn_joint_softmax, gated_cnn_joint_sub
+from support import cnn_embed, gated_cnn
 from gcnn import GCNN
 
 import numpy as np
 
 def contrastive_loss(y_true, y_pred) :
-    return K.mean((1 - y_true) * y_pred + (y_true) * K.maximum(0., 1. - y_pred), axis=-1)
-
-def contrastive_loss(y_true, y_pred) :
-    return K.mean(K.square(y_pred - y_true), axis=-1)
+    return K.mean(K.maximum(0., 1.0 - y_pred), axis=-1)
 
 class Gated2CNNModel(Trainer) :
-    def build_model(self, nb_filter=100, filter_lens=range(1,6), reg=0.0001):
-        self.aspects = [str(x) for x in range(0, 2)]
+    def build_model(self, nb_filter=100, filter_lens=range(1,6), reg=0.000001):
+        self.aspects = [str(x) for x in range(0, 4)]
 
         inputs = {}
         for aspect in self.aspects :
@@ -35,68 +32,105 @@ class Gated2CNNModel(Trainer) :
         word_dim, vocab_size = self.vec.word_dim, self.vec.vocab_size
 
         input = Input(shape=[maxlen], dtype='int32')
+        padding = Lambda(lambda s : K.expand_dims(K.cast(K.clip(s, 0, 1), 'float32')))(input)
+
+        def mwp(seq) :
+            return Multiply()([seq, padding])        
+
         lookup = Embedding(output_dim=word_dim, 
                            input_dim=vocab_size, 
                            name='embedding',
                            weights=[self.vec.embeddings])(input)
-        gated_nets, gates = gated_cnn_joint(lookup, 3, 256, 2, reg)
+        lookup = mwp(lookup)
+
+        sum_normalize = Lambda(lambda s : K.l2_normalize(K.sum(s, axis=1), axis=-1))
+        normalize = Lambda(lambda s : K.l2_normalize(s, axis=1))
 
         models = OrderedDict()
+        gates_models = OrderedDict()
+
         for aspect in self.aspects:
-            aspect_network = gated_cnn(lookup, 3, 256, reg) #gated_nets[int(aspect)]
-            aspect_network_1 = gated_cnn(aspect_network, 2, 256, reg)
-            aspect_network_comb = aspect_network #Concatenate()([aspect_network, aspect_network_1])
-            aspect_network = Lambda(lambda s : K.sum(s, axis=1))(aspect_network_comb)
+            network1, gates1 = gated_cnn(lookup, 1, 200, reg)
+            network1 = mwp(network1)
+
+            network2, gates2 = gated_cnn(network1, 3, 200, reg)
+            network2 = mwp(network2)
+            network2 = Add()([network1, network2])
+            
+            network3, gates3 = gated_cnn(network2, 5, 200, reg)
+            network3 = mwp(network3)
+            network3 = Add()([network1, network2, network3])
+
+            gates1, gates2, gates3 = mwp(gates1), mwp(gates2), mwp(gates3)
+            network3 = Multiply()([network3, gates3])
+            network3_sum = sum_normalize(network3)
+
+            aspect_network = network3_sum
+
             model = Model(input, aspect_network)
             model.name = 'pool_' + aspect
             models[aspect] = model  
+            gates_network = gates3     
+                
+            #gates_network = normalize(gates_network)
+            gate_model = Model(input, gates_network)
+
+            gates_models[aspect] = gate_model
 
         I = OrderedDict()
         for input in inputs :
-            I[input] = Input(shape=[maxlen], dtype='int32', name=inputs[input])
+            I[input] = Input(shape=[maxlen], dtype='int32', name=inputs[input]) 
 
-        C = OrderedDict()
-        for aspect in self.aspects :
-            for input in inputs :
-                if input in [(aspect, 'O'), (aspect, 'S'), (aspect, 'D')] :
-                    C[(input, aspect)] = models[aspect](I[input])   
+        # G = OrderedDict()
+        # for aspect_in in self.aspects :
+        #     G1 = OrderedDict()
+        #     for aspect in self.aspects :
+        #         G1[(aspect, aspect_in)] = gates_models[aspect](I[(aspect_in, 'O')])
+
+        #     gate_concat = Concatenate()(G1.values())
+        #     #gate_ahead  = Lambda(lambda s : K.sum(K.sum(K.abs(s[:,1:,:] - s[:,:-1,:]), axis=-1), axis=-1, keepdims=True))(gate_concat)
+        #     # gate_dot = Dot(axes=1)([gate_concat, gate_concat])
+        #     # gate_reg = Lambda(lambda s : 0.1 * K.sum(K.sum(K.square(s - K.eye(4)), axis=-1), 
+        #     #                                     axis=-1, keepdims=True), name='gate_reg_'+aspect_in)(gate_dot)
+        #     # norm_reg = Lambda(lambda s :  K.expand_dims(1./s[:,0,0] + 1./s[:,1,1] + 1./s[:,2,2] + 1./s[:,3,3]) - 1)(gate_dot)
+        #     # G[aspect_in] = Add()([gate_reg, norm_reg])
+        #     G[aspect_in] = gate_ahead
+
+        # gate_reg = Add(name='gate_reg')(G.values())
 
         models_pred = OrderedDict()
         for aspect in self.aspects :
             input_1 = Input(shape=[maxlen], dtype='int32', name='A1')
             input_2 = Input(shape=[maxlen], dtype='int32', name='A2')
+            input_3 = Input(shape=[maxlen], dtype='int32', name='A3')
             embed_model = models[aspect]
             embed_1 = embed_model(input_1)
             embed_2 = embed_model(input_2)
-            diff = Lambda(lambda s : K.sum(K.l2_normalize(s[0], axis=-1) * K.l2_normalize(s[1], axis=-1), axis=-1, keepdims=True))([embed_1, embed_2])
-            output = Activation('linear')(diff)
-            model_pred = Model([input_1, input_2], [output])
+            embed_3 = embed_model(input_3)
+            diff1 = Dot(axes=-1)([embed_1, embed_2])
+            diff2 = Dot(axes=-1)([embed_1, embed_3])
+            output = Lambda(lambda s : s[0] - s[1])([diff1, diff2])
+            model_pred = Model([input_1, input_2, input_3], output)
             model_pred.name = 'pred_'+aspect
             models_pred[aspect] = model_pred
 
         P = OrderedDict()
         for aspect in self.aspects :
-            P[(aspect, 'S')] = models_pred[aspect]([I[(aspect, 'O')], I[(aspect, 'S')]])
-            P[(aspect, 'D')] = models_pred[aspect]([I[(aspect, 'O')], I[(aspect, 'D')]])
-
+            P[aspect] = models_pred[aspect]([I[(aspect, 'O')], I[(aspect, 'S')], I[(aspect, 'D')]])
                     
         D = OrderedDict()
         self.losses = {}
-        
+        #self.losses['gate_reg'] = lambda y_true, y_pred : 0.001 * K.mean(y_pred, axis=-1)
+
         for aspect in self.aspects :
             name_s = 'O_S'+aspect+'_score'
-            name_d = 'O_D'+aspect+'_score'
-            
-            D[name_s] = Activation('linear', name=name_s)(P[(aspect, 'S')])
-            D[name_d] = Activation('linear', name=name_d)(P[(aspect, 'D')])
+            output_1 = P[aspect]
+            D[name_s] = Activation('linear', name=name_s)(output_1)
 
             self.losses[name_s] = contrastive_loss
-            self.losses[name_d] = contrastive_loss
+            
 
-        #self.losses['reg_loss'] = lambda y_true, y_pred : K.mean(y_pred, axis=-1)
-        #import pdb
-        #pdb.set_trace()
-        self.model = Model(inputs=I.values(), outputs=D.values())
+        self.model = Model(inputs=I.values(), outputs=D.values())# + [gate_reg])
             
         self.model.compile(optimizer=Adam(lr=0.001), loss=self.losses)
         
@@ -108,10 +142,13 @@ class Gated2CNNModel(Trainer) :
         for aspect in self.aspects :
             name_s = 'O_S'+aspect+'_score'
             name_d = 'O_D'+aspect+'_score'
+
             ones.append(name_s)
             zeros.append(name_d)
 
-        zeros.append('reg_loss')
+
+        zeros.append('gate_reg')
+        
 
         for loss in ones :
             y_batch[loss] = np.ones(nb_sample)
@@ -120,7 +157,7 @@ class Gated2CNNModel(Trainer) :
             y_batch[loss] = np.zeros(nb_sample)
 
         for loss in zeros :
-            y_batch[loss] = np.full(nb_sample, -1)
+            y_batch[loss] = np.full(nb_sample, 0)
             
         return y_batch
 
@@ -130,14 +167,20 @@ class Gated2CNNModel(Trainer) :
         for aspect in self.aspects :
             model_aspect = model.get_layer('pred_'+aspect).get_layer('pool_' + aspect)
             inputs += model_aspect.inputs
-            outputs += model_aspect.outputs
+            outputs += [model_aspect.outputs[0]]
         inputs = inputs[:1]
         inputs += [K.learning_phase()]
-        self.aspect_evaluation_models = {}
-        for i, aspect in enumerate(self.aspects) :
-            self.aspect_evaluation_models[aspect] = K.function(inputs, [outputs[i]])
         output = K.concatenate(outputs, axis=-1)
         self.evaluation_model = K.function(inputs,[output])
+
+        self.aspect_evaluation_models = {}
+        for i, aspect in enumerate(self.aspects) :
+            model_aspect = model.get_layer('pred_'+aspect).get_layer('pool_' + aspect)
+            input = model_aspect.inputs + [K.learning_phase()]
+            output = model_aspect.outputs
+            self.aspect_evaluation_models[aspect] = K.function(input, output)
+        
+
         if aspect_specific :
             return self.evaluation_model, self.aspect_evaluation_models
         return self.evaluation_model

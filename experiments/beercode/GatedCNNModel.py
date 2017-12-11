@@ -11,7 +11,7 @@ from keras.regularizers import l2
 from keras.optimizers import Adam
 
 from trainer import Trainer
-from support import cnn_embed, gated_cnn, gated_cnn_joint, gated_cnn_joint_softmax, gated_cnn_joint_sub
+from support import cnn_embed, gated_cnn#, gated_cnn_joint, gated_cnn_joint_softmax, gated_cnn_joint_sub
 from gcnn import GCNN
 
 import numpy as np
@@ -97,9 +97,6 @@ class GatedCNNModel(Trainer) :
             self.losses[name_s] = contrastive_loss
             self.losses[name_d] = contrastive_loss
 
-        #self.losses['reg_loss'] = lambda y_true, y_pred : K.mean(y_pred, axis=-1)
-        #import pdb
-        #pdb.set_trace()
         self.model = Model(inputs=I.values(), outputs=D.values())
             
         self.model.compile(optimizer=Adam(lr=0.001), loss=self.losses)
