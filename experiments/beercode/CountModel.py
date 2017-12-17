@@ -36,7 +36,8 @@ class CountModel(Trainer) :
         
 
         for aspect in self.aspects:
-            network = Dense(800, activation='relu', kernel_regularizer=l2(reg))(input)
+            network = Dense(800, activation='tanh', kernel_regularizer=l2(reg))(input)
+            network = Dense(200, activation='relu', kernel_regularizer=l2(reg))(network)
             network = normalize(network)
             model = Model(input, network)
             model.name = 'pool_' + aspect

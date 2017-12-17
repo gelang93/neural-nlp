@@ -26,7 +26,7 @@ class Trainer:
             
     def load_data(self) :
         self.vec = pickle.load(open('../../beer_data/beer_vec_ds_df10.p', 'rb'))
-        print self.vec.vocab_size
+        # print self.vec.vocab_size
         # X_tf = np.zeros((self.vec.X.shape[0], self.vec.vocab_size))
         # for i in range(len(self.vec.X)) :
         #     X_tf[i, self.vec.X[i, :]] = 1.
@@ -90,7 +90,7 @@ class Trainer:
         }
         
         callback_list = self.C['callbacks'].split(',')
-        self.callbacks = [pal]+[callback_dict[cb_name] for cb_name in callback_list]+[tb]
+        self.callbacks = [callback_dict[cb_name] for cb_name in callback_list]+[tb]
         
         nb_train = len(train_idxs)
         self.model.fit_generator(train_gen,

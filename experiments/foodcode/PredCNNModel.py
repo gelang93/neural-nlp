@@ -52,24 +52,27 @@ class PredCNNModel(Trainer) :
 
         for aspect in self.aspects:
             #cnn_network, convs = cnn_embed(lookup, filter_lens, nb_filter, maxlen, word_dim, reg, name='pool_'+aspect)
-            network1, gates1 = gated_cnn(lookup, 1, 200, reg)
-            network1 = mwp(network1)
+            # network1, gates1 = gated_cnn(lookup, 1, 200, reg)
+            # network1 = mwp(network1)
 
-            network2, gates2 = gated_cnn(network1, 3, 200, reg)
-            network2 = mwp(network2)
+            # network2, gates2 = gated_cnn(network1, 3, 200, reg)
+            # network2 = mwp(network2)
 
-            network2 = Add()([network1, network2])
+            # network2 = Add()([network1, network2])
                    
-            network3, gates3 = gated_cnn(network2, 5, 200, reg)
-            network3 = mwp(network3)
+            # network3, gates3 = gated_cnn(network2, 5, 200, reg)
+            # network3 = mwp(network3)
 
-            network3 = Add()([network1, network2, network3])
+            # network3 = Add()([network1, network2, network3])
 
-            gates4 = mwp(gates3)
+            # gates4 = mwp(gates3)
             
-            network3 = Multiply()([network3, gates4])
+            # network3 = Multiply()([network3, gates4])
 
-            network3 = sum_normalize(network3)
+            # network3 = sum_normalize(network3)
+            cnn = cnn_embed(lookup, filter_lens, 200, maxlen, reg)
+            dense = Dense(256, activation='tanh')(cnn)
+            network3 = Lambda(lambda s : K.l2_normalize(s, axis=1))(dense)
             cnn_network = network3
 
             model = Model(input, cnn_network)

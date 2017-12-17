@@ -14,7 +14,7 @@ def my_config():
     optimizer = 'adam'
     metric = 'loss'
     callbacks = 'cb,fl,es,cv'
-    trainer = 'NVDMModel'
+    trainer = 'PredCNNModel'
     loss = 'hinge'
     nb_train = 1.
     log_full = 'False'

@@ -66,7 +66,7 @@ class Trainer:
 
             
     def load_data_all_fields(self) :
-        self.vec = pickle.load(open('../data/vectorizers/allfields_with_embedding_5000.p', 'rb'))
+        self.vec = pickle.load(open('../../preprocess/allfields_with_embedding_19995.p', 'rb'))
         index = self.vec.index
         self.nb_values = None
         for input in self.C['inputs'] :
@@ -101,7 +101,7 @@ class Trainer:
         self.C['test_ref'] = H
         self.C['test_cdnos'] = df.cdno
         self.C['test_idxs'] = np.array(df.index)
-        self.C['test_vec'] = pickle.load(open('../data/vectorizers/cohendata_dedup_5000.p', 'rb'))
+        self.C['test_vec'] = pickle.load(open('../../preprocess/cohendata_dedup_19995.p', 'rb'))
 
         # X_tf = np.zeros((self.C['test_vec'].X.shape[0], self.vec.vocab_size))
         # for i in range(len(self.C['test_vec'].X)) :
@@ -121,7 +121,7 @@ class Trainer:
         self.C['da_ref'] = H
         self.C['da_cdnos'] = df.IM_population
         self.C['da_idxs'] = np.array(df.index)
-        self.C['da_vec'] = pickle.load(open('../data/vectorizers/decision_aids_vec_5000.p', 'rb'))
+        self.C['da_vec'] = pickle.load(open('../../preprocess/decision_aids_vec_19995.p', 'rb'))
 
         # X_tf = np.zeros((self.C['da_vec'].X.shape[0], self.vec.vocab_size))
         # for i in range(len(self.C['da_vec'].X)) :

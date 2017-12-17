@@ -1,7 +1,7 @@
 from train import time_str
 from train import ex
 
-model = 'GatedCNNModel'
+model = 'DSSMModel'
 
 import sys
 file_message = sys.argv[2] if len(sys.argv) > 2 else ""

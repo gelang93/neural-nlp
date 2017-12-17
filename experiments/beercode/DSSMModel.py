@@ -20,7 +20,7 @@ def contrastive_loss(y_true, y_pred) :
     return K.mean(K.maximum(0., 1.0 - y_pred), axis=-1)
 
 class Gated2CNNModel(Trainer) :
-    def build_model(self, nb_filter=100, filter_lens=range(1,4), reg=0.000000001):
+    def build_model(self, nb_filter=100, filter_lens=range(1,6), reg=0.000001):
         self.aspects = [str(x) for x in range(0, 4)]
 
         inputs = {}
@@ -50,39 +50,61 @@ class Gated2CNNModel(Trainer) :
         gates_models = OrderedDict()
 
         for aspect in self.aspects:
-            # network1, gates1 = gated_cnn(lookup, 1, 200, reg)
-            # network1 = mwp(network1)
+            network1, gates1 = gated_cnn(lookup, 1, 200, reg)
+            network1 = mwp(network1)
 
-            # network2, gates2 = gated_cnn(network1, 3, 200, reg)
-            # network2 = mwp(network2)
-            # network2 = Add()([network1, network2])
+            network2, gates2 = gated_cnn(network1, 3, 200, reg)
+            network2 = mwp(network2)
+            network2 = Add()([network1, network2])
             
-            # network3, gates3 = gated_cnn(network2, 5, 200, reg)
-            # network3 = mwp(network3)
-            # network3 = Add()([network1, network2, network3])
+            network3, gates3 = gated_cnn(network2, 5, 200, reg)
+            network3 = mwp(network3)
+            network3 = Add()([network1, network2, network3])
 
-            # gates1, gates2, gates3 = mwp(gates1), mwp(gates2), mwp(gates3)
-            # # network3 = GlobalMaxPooling1D()(network3)
-            # network3 = Multiply()([network3, gates3])
+            gates1, gates2, gates3 = mwp(gates1), mwp(gates2), mwp(gates3)
+            # network3 = GlobalMaxPooling1D()(network3)
+            network3 = Multiply()([network3, gates3])
             # network3 = CuDNNGRU(128, kernel_regularizer=l2(reg), return_sequences=True)(lookup)
             # gates = TimeDistributed(Dense(1, activation='sigmoid', kernel_regularizer=l2(reg), activity_regularizer=l1(reg)))(network3)
             # network3 = Multiply()([network3, gates])
-            #network3 = mwp(network3)
-            cnn = cnn_embed(lookup, filter_lens, 200, maxlen, reg)
-            dense = Dense(256, activation='tanh')(cnn)
-            normalize = Lambda(lambda s : K.l2_normalize(s, axis=1))(dense)
-            network3_sum = normalize#sum_normalize(network3)
+            network3 = mwp(network3)
+            network3_sum = sum_normalize(network3)
+
+            # import pdb
+            # pdb.set_trace()
 
             aspect_network = network3_sum
 
             model = Model(input, aspect_network)
             model.name = 'pool_' + aspect
             models[aspect] = model  
+            # gates_network = gates3     
+                
+            # #gates_network = normalize(gates_network)
+            # gate_model = Model(input, gates_network)
+
+            # gates_models[aspect] = gate_model
 
         I = OrderedDict()
         for input in inputs :
             I[input] = Input(shape=[maxlen], dtype='int32', name=inputs[input]) 
 
+        # G = OrderedDict()
+        # for aspect_in in self.aspects :
+        #     G1 = OrderedDict()
+        #     for aspect in self.aspects :
+        #         G1[(aspect, aspect_in)] = gates_models[aspect](I[(aspect_in, 'O')])
+
+        #     gate_concat = Concatenate()(G1.values())
+        #     #gate_ahead  = Lambda(lambda s : K.sum(K.sum(K.abs(s[:,1:,:] - s[:,:-1,:]), axis=-1), axis=-1, keepdims=True))(gate_concat)
+        #     # gate_dot = Dot(axes=1)([gate_concat, gate_concat])
+        #     # gate_reg = Lambda(lambda s : 0.1 * K.sum(K.sum(K.square(s - K.eye(4)), axis=-1), 
+        #     #                                     axis=-1, keepdims=True), name='gate_reg_'+aspect_in)(gate_dot)
+        #     # norm_reg = Lambda(lambda s :  K.expand_dims(1./s[:,0,0] + 1./s[:,1,1] + 1./s[:,2,2] + 1./s[:,3,3]) - 1)(gate_dot)
+        #     # G[aspect_in] = Add()([gate_reg, norm_reg])
+        #     G[aspect_in] = gate_ahead
+
+        # gate_reg = Add(name='gate_reg')(G.values())
 
         models_pred = OrderedDict()
         for aspect in self.aspects :

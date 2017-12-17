@@ -7,3 +7,4 @@ from SingleMECNNModel import *
 from RandLossCNNModel import *
 from GatedCNNModel import *
 from CountModel import *
+from DSSMModel import *

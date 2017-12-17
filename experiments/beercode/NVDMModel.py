@@ -87,15 +87,15 @@ class NVDMModel(Trainer) :
             diff1 = Dot(axes=-1, normalize='l2')([embed_1, embed_2])
             diff2 = Dot(axes=-1, normalize='l2')([embed_1, embed_3])
 
-            kld_term_1 = Lambda(lambda s : -kld_gauss(s))([embed_2, sigma_2, embed_1, sigma_1])
+            #kld_term_1 = Lambda(lambda s : -kld_gauss(s))([embed_2, sigma_2, embed_1, sigma_1])
             #kld_term_2 = Lambda(kld_gauss)([embed_2, sigma_2, embed_1, sigma_1])
 
-            kld_term_2 = Lambda(lambda s : kld_gauss(s))([embed_3, sigma_3, embed_1, sigma_1])  
+            #kld_term_2 = Lambda(lambda s : kld_gauss(s))([embed_3, sigma_3, embed_1, sigma_1])  
 
             vaeterms = Add()([vae_1, vae_2, vae_3])
-            kld_terms = Add()([kld_term_1, kld_term_2])
+            #kld_terms = Add()([kld_term_1, kld_term_2])
 
-            model_pred = Model([input_1, input_2, input_3], [diff1, diff2, vaeterms, kld_terms])
+            model_pred = Model([input_1, input_2, input_3], [diff1, diff2, vaeterms])#, kld_terms])
             model_pred.name = 'pred_'+aspect
             models_pred[aspect] = model_pred
 
@@ -113,13 +113,13 @@ class NVDMModel(Trainer) :
             
             output = P[aspect]
 
-            #D[name_s] = Lambda(lambda s : s[0] - s[1], name=name_s)([output[0], output[1]])
+            D[name_s] = Lambda(lambda s : s[0] - s[1], name=name_s)([output[0], output[1]])
             D[name_v] = Activation('linear', name=name_v)(output[2])
-            D[name_w] = Activation('linear', name=name_w)(output[3])
+            #D[name_w] = Activation('linear', name=name_w)(output[3])
 
-            #self.losses[name_s] = contrastive_loss
+            self.losses[name_s] = contrastive_loss
             self.losses[name_v] = lambda y_true, y_pred : 0.001 * K.mean(y_pred)
-            self.losses[name_w] = contrastive_loss
+            #self.losses[name_w] = contrastive_loss
 
         self.model = Model(inputs=I.values(), outputs=D.values())
             

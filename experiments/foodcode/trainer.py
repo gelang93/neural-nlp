@@ -26,12 +26,12 @@ class Trainer:
             
     def load_data(self) :
         self.vec = pickle.load(open('../../yelpdata/total_vec_120K_embed.p', 'rb'))
-        X_tf = np.zeros((self.vec.X.shape[0], self.vec.vocab_size))
-        for i in range(len(self.vec.X)) :
-            X_tf[i, self.vec.X[i, :]] = 1.
+        # X_tf = np.zeros((self.vec.X.shape[0], self.vec.vocab_size))
+        # for i in range(len(self.vec.X)) :
+        #     X_tf[i, self.vec.X[i, :]] = 1.
 
-        X_tf = X_tf[:, 2:]
-        self.vec.X = X_tf
+        # X_tf = X_tf[:, 2:]
+        # self.vec.X = X_tf
         
         ds = pd.read_csv('../../yelpdata/total_data_120K.csv')
                     

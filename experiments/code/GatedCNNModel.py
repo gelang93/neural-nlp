@@ -3,7 +3,7 @@ from collections import OrderedDict
 import keras.backend as K
 from keras.layers import Input, Embedding, Dropout, Dense, LSTM, merge, Lambda, Concatenate
 from keras.layers import Conv1D, GlobalMaxPooling1D, Flatten, merge
-from keras.layers import Activation, Lambda, ActivityRegularization, TimeDistributed
+from keras.layers import Activation, Lambda, ActivityRegularization, TimeDistributed, CuDNNGRU
 from keras.layers.merge import Dot, Multiply, Add
 from keras.models import Model
 from keras.regularizers import l2, l1
@@ -61,14 +61,19 @@ class GatedCNNModel(Trainer) :
             network3 = Add()([network1, network2, network3])
 
             #network4, gates4 = gated_cnn(network3, 7, 200, reg)
-            gates4 = mwp(gates3)
+            gates = mwp(gates3)
             
-            network3 = Multiply()([network3, gates4])
+            network3 = Multiply()([network3, gates])
+            # network3 = CuDNNGRU(128, kernel_regularizer=l2(reg), return_sequences=True)(lookup)
+            # gates = TimeDistributed(Dense(1, activation='sigmoid', kernel_regularizer=l2(reg), activity_regularizer=l1(reg)))(network3)
+            # gates = mwp(gates)
+            # network3 = Multiply()([network3, gates])
+            network3 = mwp(network3)
 
             network3 = sum_normalize(network3)
             network = network3
 
-            gates_network = gates3            
+            gates_network = gates          
             gates_network = normalize(gates_network)
 
             model = Model(input, network)
@@ -117,16 +122,16 @@ class GatedCNNModel(Trainer) :
                 D[name] = Dot(axes=1, name=name)([embed_1, embed_2])
                 self.losses[name] = contrastive_loss
 
-                embed_3 = C[((aspect_comp, 'V'), aspect)]
-                name = 'SA' + aspect + '_V' + aspect_comp + aspect + '_score'
-                D[name] = Dot(axes=1, name=name)([embed_1, embed_3])
-                self.losses[name] = contrastive_loss
+                # embed_3 = C[((aspect_comp, 'V'), aspect)]
+                # name = 'SA' + aspect + '_V' + aspect_comp + aspect + '_score'
+                # D[name] = Dot(axes=1, name=name)([embed_1, embed_3])
+                # self.losses[name] = contrastive_loss
             
-            # for mod in ['V', 'C'] :
-            #     embed_2 = C[(('A',mod), aspect)]
-            #     name = 'SA' + aspect + '_' + mod + 'A' + aspect + '_score'
-            #     D[name] = Dot(axes=1, name=name)([embed_1, embed_2])
-            #     self.losses[name] = contrastive_loss
+            for mod in ['V', 'C'] :
+                embed_2 = C[(('A',mod), aspect)]
+                name = 'SA' + aspect + '_' + mod + 'A' + aspect + '_score'
+                D[name] = Dot(axes=1, name=name)([embed_1, embed_2])
+                self.losses[name] = contrastive_loss
                    
         print self.loss_weights
         self.model = Model(inputs=I.values(), outputs=D.values())

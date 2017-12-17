@@ -40,14 +40,9 @@ def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, reg):
     for i, filter_len in enumerate(filter_lens):
         convolved = Conv1D(nb_filter, 
                            filter_len, 
-                           activation='relu',
+                           activation='tanh',
                            kernel_regularizer=l2(reg))(embedding_layer)
         convolutions.append(convolved)
-        # l_1 = Permute((2,1))(convolved)
-        # l_2 = Activation('softmax')(l_1)
-        # l_3 = Permute((2,1))(l_2)
-        # l_3 = Lambda(lambda s : K.sum(s[0]*s[1], axis=1, keepdims=True))([l_3, convolved])
-        #max_pooled = l_3
         max_pooled = MaxPooling1D(pool_size=max_doclen-filter_len+1)(convolved) # max-1 pooling
         flattened = Flatten()(max_pooled)
 
@@ -55,7 +50,7 @@ def cnn_embed(embedding_layer, filter_lens, nb_filter, max_doclen, reg):
 
     concat = concatenate(activations) if len(filter_lens) > 1 else flattened
     convolutions = concatenate(convolutions, axis=1) if len(filter_lens) > 1 else convolved
-    concat = Dropout(0.3)(concat)
+    #concat = Dropout(0.3)(concat)
     return concat, convolutions
 
 def lstm_embed(embedding_layer, hidden_dim) :
