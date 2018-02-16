@@ -14,7 +14,7 @@ from math import ceil
 
 import spacy
 nlp = spacy.load('en', disable=['parser', 'tagger', 'ner'])
-print nlp.pipeline
+#print nlp.pipeline
 
 class Vectorizer:
     """Tiny class for fitting a vocabulary and vectorizing texts.
@@ -131,20 +131,5 @@ class Vectorizer:
             else :
                 self.embeddings[i] = np.random.randn(self.word_dim)
                 
-        print "Found " + str(in_pre) + " words in pubmed out of " + str(len(self.idx2word))
+        #print "Found " + str(in_pre) + " words in pubmed out of " + str(len(self.idx2word))
         return self.embeddings
-
-    def test(self, doc_idx):
-        """Recover text from vectorized representation of the `doc_idx`th text
-
-        Parameters
-        ----------
-        doc_idx : document index to recover text from
-
-        This function is just for sanity checking that sequence vectorization
-        works.
-
-        """
-        print self.X[doc_idx]
-        print
-        print ' '.join(self.idx2word[idx] for idx in self.X[doc_idx] if idx)

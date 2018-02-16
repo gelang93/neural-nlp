@@ -22,7 +22,7 @@ def posneg_matrix_generator(X, df, nb_sample, seed):
                 idxsidx[(aspect, i, j)] = list(set(idxsidx[(aspect, i)]) & set(idxsidx[j]))
 
 
-    samples_per_group = nb_sample/2
+    samples_per_group = nb_sample//2
         
     while True:
         X_orig = {'O'+str(v):[] for k, v in aspect_maps.items()}
@@ -52,7 +52,7 @@ def posneg_matrix_generator(X, df, nb_sample, seed):
                 X_diff['D'+str(v)] += list(random.choice(different_1, size=sample_size_1, replace=True)) 
                 X_diff['D'+str(v)] += list(random.choice(different_2, size=sample_size_2, replace=True))   
            
-        X_batch = dict(X_orig.items() + X_diff.items() + X_same.items())
+        X_batch = dict(list(X_orig.items()) + list(X_diff.items()) + list(X_same.items()))
         
         for key in X_batch :
             X_batch[key] = X[X_batch[key]]

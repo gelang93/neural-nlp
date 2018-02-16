@@ -7,9 +7,8 @@ from keras.layers import Activation, Lambda, ActivityRegularization, TimeDistrib
 from keras.layers.merge import Dot, Multiply, Add
 from keras.models import Model
 from keras.regularizers import l2, l1
-from gcnn import GCNN
 from trainer import Trainer
-from support import cnn_embed, lstm_embed, gated_cnn, gated_cnn_joint
+from support import cnn_embed
 
 import numpy as np
 

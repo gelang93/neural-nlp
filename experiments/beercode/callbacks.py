@@ -23,16 +23,15 @@ class Flusher(Callback):
         sys.stdout.flush()
 
 class CSVLogger(Callback):
-    def __init__(self, exp_group, exp_id):
-        self.exp_group, self.exp_id = exp_group, exp_id
-        self.train_path = '../store/train/{}/{}/{}.csv'.format(self.exp_group, self.exp_id, 'output')    
+    def __init__(self, trainer):
+        self.train_path = trainer.dirname + 'output.csv'    
         makedirs(self.train_path)
 
         super(Callback, self).__init__()
 
     def on_epoch_end(self, epoch, logs={}):
         frame = {metric: [val] for metric, val in logs.items()}
-        print {k:v for k,v in logs.items() if 'loss' not in k}
+        print({k:v for k,v in logs.items() if 'loss' not in k})
         pd.DataFrame(frame).to_csv(self.train_path,
                                    index=False,
                                    mode='a' if epoch > 0 else 'w', # overwrite if starting anew if starting anwe
@@ -68,7 +67,7 @@ class AUCLogger(Callback):
         for i in range(self.nb_sample) :
             aucs[i] = roc_auc_score(self.R[i], scores[i])
         logs[self.logname] = np.mean(aucs)
-        print logs[self.logname]
+        #print logs[self.logname]
 
 class PerAspectAUCLogger(Callback) :
     def __init__(self, X, idxs, trainer, batch_size=128, phase=0, logname='sim') :
@@ -111,7 +110,7 @@ class PerAspectAUCLogger(Callback) :
                 result = self.aspect_embeds[aspect]([self.X[i*bs:(i+1)*bs], 0])[0]
                 vecs[aspect].append(result)
             i += 1
-        print ""
+        #print ""
         
         for aspect in self.aspect_embeds :
             result = np.concatenate(vecs[aspect], axis=0)
@@ -126,5 +125,5 @@ class PerAspectAUCLogger(Callback) :
                 for i in range(self.nb_sample) :
                     aucs[i] = roc_auc_score(self.H[aspect_j][i], scores[i])
                 logs[self.logname+'_'+aspect+'_'+aspect_j] = np.mean(aucs)
-                print aspect, aspect_j, logs[self.logname+'_'+aspect+'_'+aspect_j]
-        print ""
+                print(aspect, aspect_j, logs[self.logname+'_'+aspect+'_'+aspect_j])
+        print("")

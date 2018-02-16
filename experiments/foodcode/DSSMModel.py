@@ -4,22 +4,22 @@ import keras.backend as K
 from keras.layers import Input, Embedding, Dropout, Dense, LSTM, merge, Lambda, Concatenate
 from keras.layers import Conv1D, GlobalMaxPooling1D, Flatten, merge
 from keras.layers import Activation, Lambda, ActivityRegularization
-from keras.layers.merge import Dot
+from keras.layers.merge import Dot, Multiply, Add
 from keras.models import Model
 from keras.regularizers import l2
 
 from keras.optimizers import Adam
 
 from trainer import Trainer
-from support import cnn_embed, Element_wise_weighting
+from support import cnn_embed, Bilinear, gated_cnn
 
 import numpy as np
 
 def contrastive_loss(y_true, y_pred) :
-    return K.mean((1 - y_true) * y_pred + (y_true) * K.maximum(0., 1. - y_pred), axis=-1)
+    return K.mean(K.maximum(0., 1. - y_pred), axis=-1)
 
-class OneCNNModel(Trainer) :
-    def build_model(self, nb_filter=200, filter_lens=range(1,6), reg=0.000):
+class DSSMModel(Trainer) :
+    def build_model(self, nb_filter=300, filter_lens=range(1,6), reg=0.00001):
         self.aspects = ['bit', 'domain']
 
         inputs = {}
@@ -31,27 +31,33 @@ class OneCNNModel(Trainer) :
         maxlen = self.vec.maxlen
         word_dim, vocab_size = self.vec.word_dim, self.vec.vocab_size
 
-        input = Input(shape=[maxlen], dtype='int32')
-        lookup = Embedding(output_dim=word_dim, 
-                           input_dim=vocab_size, 
-                           name='embedding',
-                           weights=[self.vec.embeddings])(input)
-        cnn_network_shared, convs = cnn_embed(lookup, filter_lens, nb_filter/2*len(self.aspects), maxlen, word_dim, reg, name='pool')
-        #weighted = Element_wise_weighting(nb_aspects=len(self.aspects))(cnn_network_shared)
+        input = Input(shape=[maxlen], dtype='float32')
+        padding = Lambda(lambda s : K.expand_dims(K.clip(s, 0, 1)))(input)
 
+        def mwp(seq) :
+            return Multiply()([seq, padding])
+
+        lookup = Embedding(output_dim=word_dim, 
+                input_dim=vocab_size, 
+                name='embedding',
+                weights=[self.vec.embeddings])(input)
+        lookup = mwp(lookup)
         
         models = OrderedDict()
-        for i, aspect in enumerate(self.aspects):
-            #network_shared = Lambda(lambda s : s[:, :, i])(weighted)
-            network_separate, convs = cnn_embed(lookup, filter_lens, nb_filter/2, maxlen, word_dim, reg, name='pool_'+aspect)
-            network_total = Concatenate()([cnn_network_shared, network_separate])
-            model = Model(input, network_total)
+
+        for aspect in self.aspects:
+            cnn = cnn_embed(lookup, filter_lens, 200, maxlen, reg)
+            dense = Dense(256, activation='tanh')(cnn)
+            network3 = Lambda(lambda s : K.l2_normalize(s, axis=1))(dense)
+            cnn_network = network3
+
+            model = Model(input, cnn_network)
             model.name = 'pool_' + aspect
             models[aspect] = model            
                     
         I = OrderedDict()
         for input in inputs :
-            I[input] = Input(shape=[maxlen], dtype='int32', name=inputs[input])
+            I[input] = Input(shape=[maxlen], dtype='float32', name=inputs[input])
                         
         C = OrderedDict()
         for aspect in self.aspects :
@@ -61,15 +67,12 @@ class OneCNNModel(Trainer) :
 
         models_pred = OrderedDict()
         for aspect in self.aspects :
-            input_1 = Input(shape=[maxlen], dtype='int32', name='A1')
-            input_2 = Input(shape=[maxlen], dtype='int32', name='A2')
+            input_1 = Input(shape=[maxlen], dtype='float32', name='A1')
+            input_2 = Input(shape=[maxlen], dtype='float32', name='A2')
             embed_model = models[aspect]
             embed_1 = embed_model(input_1)
             embed_2 = embed_model(input_2)
-            B = Dense(1, name='D'+aspect)
-            #diff = Lambda(lambda s : K.sum(s[0] * s[1], axis=-1, keepdims=True))([embed_1, embed_2])
-            diff = Lambda(lambda s : K.sum(K.l2_normalize(s[0], axis=-1) * K.l2_normalize(s[1], axis=-1), axis=-1, keepdims=True))([embed_1, embed_2])
-            output = Activation('linear')(diff)
+            output = Dot(axes=1)([embed_1, embed_2])
             model_pred = Model([input_1, input_2], [output])
             model_pred.name = 'pred_'+aspect
             models_pred[aspect] = model_pred
@@ -87,14 +90,14 @@ class OneCNNModel(Trainer) :
             name_s = 'O_S'+aspect+'_score'
             name_d = 'O_D'+aspect+'_score'
             
-            D[name_s] = Activation('linear', name=name_s)(P[(aspect, 'S')])
-            D[name_d] = Activation('linear', name=name_d)(P[(aspect, 'D')])
-
+            #D[name_s] = Activation('linear', name=name_s)(P[(aspect, 'S')])
+            #D[name_d] = Activation('linear', name=name_d)(P[(aspect, 'D')])
+            D[name_s] = Lambda(lambda s : s[0] - s[1], name=name_s)([P[(aspect, 'S')], P[(aspect, 'D')]])
             #self.losses[name_s] = 'binary_crossentropy'
             #self.losses[name_d] = 'binary_crossentropy'
 
             self.losses[name_s] = contrastive_loss
-            self.losses[name_d] = contrastive_loss
+            #self.losses[name_d] = contrastive_loss
                    
         self.model = Model(inputs=I.values(), outputs=D.values())
             
@@ -135,15 +138,4 @@ class OneCNNModel(Trainer) :
         self.evaluation_model = K.function(inputs,[output])
         if aspect_specific :
             return self.evaluation_model, self.aspect_evaluation_models
-        return self.evaluation_model
-
-    def calc_sim(self, x, y, aspect) :
-        layer = self.model.get_layer('pred_' + aspect)
-        inputs = layer.inputs + [K.learning_phase()]
-        outputs = layer.outputs
-        sim_function = K.function(inputs, outputs)
-        sim = sim_function([x, y, 0])[0]
-        return sim
-
-
-        
+        return self.evaluation_model     

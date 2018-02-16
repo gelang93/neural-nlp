@@ -23,10 +23,9 @@ class Flusher(Callback):
         sys.stdout.flush()
 
 class CSVLogger(Callback):
-    def __init__(self, exp_group, exp_id):
-        self.exp_group, self.exp_id = exp_group, exp_id
-        self.train_path = '../store/train/{}/{}/{}.csv'.format(self.exp_group, self.exp_id, 'output')    
-        makedirs(self.train_path)
+    def __init__(self, trainer):
+        self.train_path = trainer.dirname + 'output.csv'    
+        makedirs(self.train_path)           
 
         super(Callback, self).__init__()
 

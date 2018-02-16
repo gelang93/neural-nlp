@@ -73,9 +73,8 @@ class StudySimilarityLogger(Callback):
 class CSVLogger(Callback):
     """Callback for dumping csv data during training"""
 
-    def __init__(self, exp_group, exp_id):
-        self.exp_group, self.exp_id = exp_group, exp_id
-        self.train_path = '../store/train/{}/{}/{}.csv'.format(self.exp_group, self.exp_id, 'output')    
+    def __init__(self, trainer):
+        self.train_path = trainer.dirname + 'output.csv'    
         makedirs(self.train_path)
 
         super(Callback, self).__init__()
@@ -116,7 +115,7 @@ class AUCLogger(Callback):
             result = self.embed_studies([self.X[i*bs:(i+1)*bs], self.phase])[0]
             vecs.append(result)
             i += 1
-        #result = self.embed_studies([self.X, self.phase])[0]
+
         result = np.concatenate(vecs, axis=0)
         result = normalize(result, 'l2')
         scores = np.dot(result, result.T)
@@ -142,12 +141,11 @@ class PerAspectAUCLogger(Callback) :
     def on_epoch_end(self, epoch, logs={}) :
         for aspect in self.aspect_embeds :
             vecs = []
-            i, bs = 0, self.batch_size
-            while i*bs < self.nb_sample:
-                result = self.aspect_embeds[aspect]([self.X[i*bs:(i+1)*bs], self.phase])[0]
+            for i in range(0, self.nb_sample, self.batch_size):
+                start, end = i , i + self.batch_size
+                result = self.aspect_embeds[aspect]([self.X[start:end], self.phase])[0]
                 vecs.append(result)
-                i += 1
-            #result = self.embed_studies([self.X, self.phase])[0]
+
             result = np.concatenate(vecs, axis=0)
             result = normalize(result, 'l2')
             scores = np.dot(result, result.T)
@@ -156,26 +154,3 @@ class PerAspectAUCLogger(Callback) :
             for i in range(self.nb_sample) :
                 aucs[i] = roc_auc_score(self.R[i], scores[i])
             logs[self.logname + '_' + aspect] = np.mean(aucs)
-        
-        
-        
-class LossWeightCallback(Callback) :
-    def __init__(self, trainer) :
-        super(Callback, self).__init__()
-        self.losses = trainer.losses
-        self.loss_weights = trainer.loss_weights
-        self.zero_after = trainer.zero_after
-        self.zero_what = trainer.zero_what
-        
-    def on_train_begin(self, logs={}) :
-        for loss in self.loss_weights :
-            self.loss_weights[loss] = 1.0
-        self.model.compile(optimizer='adam', loss=self.losses, loss_weights=self.loss_weights)
-    
-    def on_epoch_end(self, epoch, logs={}) :
-        if epoch != self.zero_after :
-            return
-        print "Zeroing ...." , self.zero_what
-        for loss in self.zero_what :
-            self.loss_weights[loss] = 0.0
-        self.model.compile(optimizer='adam', loss=self.losses, loss_weights=self.loss_weights)

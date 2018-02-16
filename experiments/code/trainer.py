@@ -39,6 +39,15 @@ class Trainer:
 
         """
         self.C = config
+        self.dirname = '../store/results/{}/{}/'.format(self.C['exp_group'], self.C['exp_id'])
+        if not os.path.exists(self.dirname) :
+            os.makedirs(self.dirname)
+
+        f = open(self.dirname + self.C['trainer'] + '.py', 'w')
+        g = open(self.C['trainer'] + '.py', 'r').read()
+
+        f.write(g)
+        f.close()
 
         # load cdnos sorted by the ones with the most studies so we pick those first when undersampling
         df = pd.read_csv(self.C['pico_file'])
@@ -132,12 +141,6 @@ class Trainer:
         
 
     def common_build_model(self) :
-        aspect = self.C['aspect']
-        aspect_comp = list(self.C['inputs'])
-        aspect_comp.remove('abstract')
-        aspect_comp.remove(aspect)
-        self.C['aspect_comp'] = aspect_comp
-        
         self.modifier = ['S', 'V', 'C']
         self.fields = []
         for input in self.C['inputs'] :
@@ -150,23 +153,7 @@ class Trainer:
         print 'Compiling...'
         self.model.summary()
 
-    def fit(self):
-        weight_str = '../store/weights/{}/{}/{}.h5'
-        exp_group, exp_id = self.C['exp_group'], self.C['exp_id']
-        metric = self.C['metric']
-        
-        weight_str = weight_str.format(exp_group, exp_id, {})
-        if not os.path.exists(dirname(weight_str)) :
-            os.makedirs(dirname(weight_str))
-        
-        cb = ModelCheckpoint(weight_str.format(metric),
-                             monitor='val_loss',
-                             save_best_only=True,
-                             mode='min')
-        ce = ModelCheckpoint(weight_str.format('val_loss'),
-                             monitor='val_loss',
-                             mode='min')
-        
+    def fit(self):        
         train_idxs, val_idxs = self.C['train_idxs'], self.C['val_idxs']
         
         X = {input: self.C[input].X for input in self.C['inputs']}
@@ -184,32 +171,15 @@ class Trainer:
         
         batch_size, nb_epoch = self.C['batch_size'], self.C['nb_epoch']
 
-        
-        ss = StudySimilarityLogger(next(batch), self, batch_size=batch_size, logname='val_similarity')
-        sst = StudySimilarityLogger(next(batch_test), self, batch_size=batch_size, logname='test_similarity')
-
         es = EarlyStopping(monitor='val_loss', patience=2, verbose=2, mode='min')
         fl = Flusher()
-        cv = CSVLogger(exp_group, exp_id)
+        cv = CSVLogger(self)
+        cb = ModelCheckpoint(self.dirname + 'model.h5', monitor='val_loss', save_best_only=True, mode='min')
         
         al = AUCLogger(self.C['test_vec'].X, self.C['test_ref'], self, batch_size=batch_size)
         pal = PerAspectAUCLogger(self.C['da_vec'].X, self.C['da_ref'], self, batch_size=batch_size)
         
-        tb = TensorBoard()
-        
-        #zlw = LossWeightCallback(self)
-
-        callback_dict = {'cb': cb, # checkpoint best
-                         'ce': ce, # checkpoint every
-                         'fl': fl, # flusher
-                         'es': es, # early stopping
-                         'ss': ss, # study similarity logger
-                         'st': sst,
-                         'cv': cv, # should go *last* as other callbacks populate `logs` dict
-                         'al': al
-        }
-        callback_list = self.C['callbacks'].split(',')
-        self.callbacks = [pal]+[callback_dict[cb_name] for cb_name in callback_list]+[tb]#+[zlw]
+        self.callbacks = [pal, al, cb, fl, es, cv]
         
         gen_source_target_batches = bg1(X_train, train_cdnos, self, nb_sample=batch_size)
         gen_validation_batches = bg1(X_val, val_cdnos, self, nb_sample=batch_size)

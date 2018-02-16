@@ -1,18 +1,15 @@
 from collections import OrderedDict
 
 import keras.backend as K
-from keras.layers import Input, Embedding, Dropout, Dense, LSTM, merge, Lambda, Concatenate, Reshape
-from keras.layers import Conv1D, AveragePooling1D, Flatten, merge, LocallyConnected1D, TimeDistributed
-from keras.layers import Activation, Lambda, ActivityRegularization, GlobalMaxPooling1D, CuDNNGRU, GRU
+from keras.layers import Input, Embedding, Lambda
+from keras.layers import Activation
 from keras.layers.merge import Dot, Add, Multiply
 from keras.models import Model
-from keras.regularizers import l2, l1
 
 from keras.optimizers import Adam
 
 from trainer import Trainer
-from support import cnn_embed, gated_cnn
-from gcnn import GCNN
+from support import gated_cnn
 
 import numpy as np
 
@@ -20,7 +17,7 @@ def contrastive_loss(y_true, y_pred) :
     return K.mean(K.maximum(0., 1.0 - y_pred), axis=-1)
 
 class Gated2CNNModel(Trainer) :
-    def build_model(self, nb_filter=100, filter_lens=range(1,4), reg=0.000000001):
+    def build_model(self, reg=0.000001):
         self.aspects = [str(x) for x in range(0, 4)]
 
         inputs = {}
@@ -43,38 +40,33 @@ class Gated2CNNModel(Trainer) :
                            weights=[self.vec.embeddings])(input)
         lookup = mwp(lookup)
 
+        network1, gates1 = gated_cnn(lookup, 1, 200, reg)
+        network1 = mwp(network1)
+
         sum_normalize = Lambda(lambda s : K.l2_normalize(K.sum(s, axis=1), axis=-1))
-        normalize = Lambda(lambda s : K.l2_normalize(s, axis=1))
 
         models = OrderedDict()
-        gates_models = OrderedDict()
 
         for aspect in self.aspects:
-            # network1, gates1 = gated_cnn(lookup, 1, 200, reg)
-            # network1 = mwp(network1)
-
-            # network2, gates2 = gated_cnn(network1, 3, 200, reg)
-            # network2 = mwp(network2)
-            # network2 = Add()([network1, network2])
             
-            # network3, gates3 = gated_cnn(network2, 5, 200, reg)
-            # network3 = mwp(network3)
-            # network3 = Add()([network1, network2, network3])
 
-            # gates1, gates2, gates3 = mwp(gates1), mwp(gates2), mwp(gates3)
-            # # network3 = GlobalMaxPooling1D()(network3)
-            # network3 = Multiply()([network3, gates3])
-            # network3 = CuDNNGRU(128, kernel_regularizer=l2(reg), return_sequences=True)(lookup)
-            # gates = TimeDistributed(Dense(1, activation='sigmoid', kernel_regularizer=l2(reg), activity_regularizer=l1(reg)))(network3)
-            # network3 = Multiply()([network3, gates])
-            #network3 = mwp(network3)
-            cnn = cnn_embed(lookup, filter_lens, 200, maxlen, reg)
-            dense = Dense(256, activation='tanh')(cnn)
-            normalize = Lambda(lambda s : K.l2_normalize(s, axis=1))(dense)
-            network3_sum = normalize#sum_normalize(network3)
+            network2, gates2 = gated_cnn(network1, 3, 200, reg)
+            network2 = mwp(network2)
+            network2 = Add()([network1, network2])
+            
+            network3, gates3 = gated_cnn(network2, 5, 200, reg)
+            network3 = mwp(network3)
+            network3 = Add()([network1, network2, network3])
+
+            gates1, gates2, gates3 = mwp(gates1), mwp(gates2), mwp(gates3)
+            network3 = Multiply()([network3, gates3])
+
+            network3 = mwp(network3)
+
+            network3_sum = sum_normalize(network3)
 
             aspect_network = network3_sum
-
+            
             model = Model(input, aspect_network)
             model.name = 'pool_' + aspect
             models[aspect] = model  
@@ -96,7 +88,7 @@ class Gated2CNNModel(Trainer) :
             diff1 = Dot(axes=-1)([embed_1, embed_2])
             diff2 = Dot(axes=-1)([embed_1, embed_3])
             output = Lambda(lambda s : s[0] - s[1])([diff1, diff2])
-            model_pred = Model([input_1, input_2, input_3], output)
+            model_pred = Model([input_1, input_2, input_3], [output])
             model_pred.name = 'pred_'+aspect
             models_pred[aspect] = model_pred
 
@@ -106,17 +98,15 @@ class Gated2CNNModel(Trainer) :
                     
         D = OrderedDict()
         self.losses = {}
-        #self.losses['gate_reg'] = lambda y_true, y_pred : 0.001 * K.mean(y_pred, axis=-1)
 
         for aspect in self.aspects :
             name_s = 'O_S'+aspect+'_score'
             output_1 = P[aspect]
             D[name_s] = Activation('linear', name=name_s)(output_1)
-
             self.losses[name_s] = contrastive_loss
             
 
-        self.model = Model(inputs=I.values(), outputs=D.values())# + [gate_reg])
+        self.model = Model(inputs=list(I.values()), outputs=list(D.values()))
             
         self.model.compile(optimizer=Adam(lr=0.001), loss=self.losses)
         
@@ -127,13 +117,7 @@ class Gated2CNNModel(Trainer) :
         zeros = []
         for aspect in self.aspects :
             name_s = 'O_S'+aspect+'_score'
-            name_d = 'O_D'+aspect+'_score'
-
             ones.append(name_s)
-            zeros.append(name_d)
-
-
-        zeros.append('gate_reg')
         
 
         for loss in ones :

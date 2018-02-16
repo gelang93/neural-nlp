@@ -23,6 +23,17 @@ import vectorizer
 class Trainer:
     def __init__(self, config):
         self.C = config
+        self.C = config
+        self.C = config
+        self.dirname = '../store/results/{}/{}/'.format(self.C['exp_group'], self.C['exp_id'])
+        if not os.path.exists(self.dirname) :
+            os.makedirs(self.dirname)
+
+        f = open(self.dirname + self.C['trainer'] + '.py', 'w')
+        g = open(self.C['trainer'] + '.py', 'r').read()
+
+        f.write(g)
+        f.close()
             
     def load_data(self) :
         self.vec = pickle.load(open('../../yelpdata/total_vec_120K_embed.p', 'rb'))
@@ -50,22 +61,6 @@ class Trainer:
         self.model.summary()
 
     def fit(self):
-        weight_str = '../store/weights/{}/{}/{}.h5'
-        exp_group, exp_id = self.C['exp_group'], self.C['exp_id']
-        metric = self.C['metric']
-        
-        weight_str = weight_str.format(exp_group, exp_id, {})
-        if not os.path.exists(dirname(weight_str)) :
-            os.makedirs(dirname(weight_str))
-        
-        cb = ModelCheckpoint(weight_str.format(metric),
-                             monitor='loss',
-                             save_best_only=True,
-                             mode='min')
-        ce = ModelCheckpoint(weight_str.format('val_loss'),
-                             monitor='val_loss',
-                             mode='min')
-        
         train_idxs, val_idxs = self.C['train_idxs'], self.C['val_idxs']
         batch_size, nb_epoch = self.C['batch_size'], self.C['nb_epoch']
 
@@ -76,20 +71,13 @@ class Trainer:
         pal = PerAspectAUCLogger(X=self.vec.X, idxs=val_idxs, trainer=self, batch_size=batch_size)
         es = EarlyStopping(monitor='val_loss', patience=10, verbose=2, mode='min')
         fl = Flusher()
-        cv = CSVLogger(exp_group, exp_id)
+        cv = CSVLogger(self)
+        cb = ModelCheckpoint(self.dirname + 'model.h5',
+                             monitor='val_loss',
+                             save_best_only=True,
+                             mode='min')
         
-        tb = TensorBoard()
-        
-        callback_dict = {
-                         'cb': cb, # checkpoint best
-                         'ce': ce, # checkpoint every
-                         'fl': fl, # flusher
-                         'es': es, # early stopping
-                         'cv': cv, # should go *last* as other callbacks populate `logs` dict
-        }
-        
-        callback_list = self.C['callbacks'].split(',')
-        self.callbacks = [pal]+[callback_dict[cb_name] for cb_name in callback_list]+[tb]
+        self.callbacks = [pal, es, cb, fl, cv]
         
         nb_train = len(train_idxs)
         self.model.fit_generator(train_gen,

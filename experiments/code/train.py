@@ -9,11 +9,6 @@ ex = Experiment()
 @ex.config
 def my_config():
     batch_size = 32
-    n_folds = 5
-    fold = 0
-    optimizer = 'adam'
-    metric = 'loss'
-    callbacks = 'ss,st,al,cb,fl,es,cv'
     trainer = 'SeparateCNNModel'
     loss = 'hinge'
     nb_train = 1.
@@ -23,7 +18,6 @@ def my_config():
     exp_group = 'population'
     exp_id = time_str
     nb_epoch = 20
-    aspect = 'population'
     pico_file = '../data/files/study_inclusion.csv'
 
 
