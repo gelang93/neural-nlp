@@ -43,10 +43,7 @@ class Vectorizer:
         return self.X[given]
     
     def tokenizer(self, text, which=False) :
-        if which :
-            text = [t.text for t in nlp(unicode(text, 'utf-8').lower())]
-        else :
-            text = [t.text for t in nlp(unicode(text).lower())]
+        text = [t.text.lower() for t in nlp(text)]
         #text = word_tokenize(text.lower())
         text = ['qqq' if any(char.isdigit() for char in word) else word for word in text]
         return text
@@ -131,5 +128,5 @@ class Vectorizer:
             else :
                 self.embeddings[i] = np.random.randn(self.word_dim)
                 
-        #print "Found " + str(in_pre) + " words in pubmed out of " + str(len(self.idx2word))
+        print "Found " + str(in_pre) + " words in pubmed out of " + str(len(self.idx2word))
         return self.embeddings

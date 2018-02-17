@@ -36,7 +36,7 @@ class Trainer:
             
     def load_data(self) :
         #self.vec = pickle.load(open('../../beer_data/beer_vec_ds_df10.p', 'rb'))
-        self.vec = pickle.load(open('../../beer_data/beer_vec_ds_df10.p', 'rb'))
+        self.vec = pickle.load(open('../../beer_data/beer_vec_ds_df10_wv.p', 'rb'))
         # print self.vec.vocab_size
         # X_tf = np.zeros((self.vec.X.shape[0], self.vec.vocab_size))
         # for i in range(len(self.vec.X)) :
