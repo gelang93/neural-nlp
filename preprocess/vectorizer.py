@@ -128,5 +128,5 @@ class Vectorizer:
             else :
                 self.embeddings[i] = np.random.randn(self.word_dim)
                 
-        print "Found " + str(in_pre) + " words in pubmed out of " + str(len(self.idx2word))
+        print("Found " + str(in_pre) + " words in pubmed out of " + str(len(self.idx2word)))
         return self.embeddings
